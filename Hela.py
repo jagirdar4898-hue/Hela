@@ -12,7 +12,9 @@ GROQ_API_KEY = os.environ.get("G")
 OWNER_ID = 8099984863
 OWNER_USERNAME = "Carol_616"
 
-app = Client("HelaBot", bot_token=BOT_TOKEN, api_id=36602445, api_hash="acbe06fc61934b6791e1ccf5c508768b")
+API_ID = int(os.environ.get("A"))
+API_HASH = os.environ.get("H")
+app = Client("HelaBot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # Database (For Demo: In-memory dictionary)
