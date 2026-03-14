@@ -2,16 +2,7 @@ import os
 import random
 import time
 import asyncio
-
-# --- ASYNCIO LOOP FIX (Python ki bewakoofi ka ilaaj) ---
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-# --------------------------------------------------------
-
-from pyrogram import Client, filters, enums
+from pyrogram import Client, filters, enums  # <-- enums add kiya hai
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from groq import Groq
 
@@ -216,13 +207,17 @@ async def hela_chat(client, message):
     bot = await client.get_me()
     msg_text = message.text.lower()
     
+    # Check: Kya ye Private DM hai ya Group?
+    is_private = message.chat.type == enums.ChatType.PRIVATE
+    
     # Check 1: Kya kisi ne bot ke message par reply kiya hai?
     is_reply = message.reply_to_message and message.reply_to_message.from_user.id == bot.id
     # Check 2: Kya message mein "hela" likha hai ya bot ka username mention kiya hai?
     is_mentioned = "hela" in msg_text or (bot.username and f"@{bot.username.lower()}" in msg_text)
     
-    # Agar dono mein se kuch nahi hua, toh bot chup rahegi
-    if not (is_reply or is_mentioned):
+    # NAYA LOGIC: Agar Group hai, toh bina mention/reply ke chup rahegi. 
+    # Par agar DM (Private) hai, toh har baat ka jawab degi!
+    if not is_private and not (is_reply or is_mentioned):
         return 
     # ------------------------
 
