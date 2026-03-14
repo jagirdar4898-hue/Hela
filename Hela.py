@@ -12,7 +12,7 @@ GROQ_API_KEY = os.environ.get("G")
 OWNER_ID = 8099984863
 OWNER_USERNAME = "Carol_616"
 
-app = Client("HelaBot", bot_token=BOT_TOKEN, api_id=12345, api_hash="your_api_hash")
+app = Client("HelaBot", bot_token=BOT_TOKEN, api_id=36602445, api_hash="acbe06fc61934b6791e1ccf5c508768b")
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # Database (For Demo: In-memory dictionary)
@@ -1122,4 +1122,22 @@ async def admincmds_cmd(client, message):
     )
     await message.reply_text(text)
 
+# --- RENDER PORT FIX (Nakli Website) ---
+import threading
+from flask import Flask
+import os # Ye ensure karega ki os module loaded hai
+
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "✨ Asgard is Safe! Hela is Alive and Ruling! 👑"
+
+def run_web():
+    web_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+# Nakli website ko background mein chalu karo
+threading.Thread(target=run_web).start()
+
+# Asli bot ko start karo
 app.run()
