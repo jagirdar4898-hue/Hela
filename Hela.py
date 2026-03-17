@@ -229,7 +229,7 @@ async def hela_chat(client, message):
             {"role": "system", "content": system_role},
             {"role": "user", "content": message.text}
         ],
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-8b-instant",
     )
     
     response = chat_completion.choices[0].message.content
@@ -1086,7 +1086,7 @@ async def help_cmd(client, message):
             "• `/love`, `/kiss`, `/bite`, `/hug` - Pyaar aur nafrat ka khel.\n"
             "• `/showid` - Apni aur group ki jankari nikalne ke liye.\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "✨ *Aye hai sarri commands jyada help chaiye toh /start likho aur owner se contact karo*"
+            "✨ *ye hai sarri commands jyada help chaiye toh /start likho aur owner se contact karo*"
         )
         await message.reply_text(help_text)
 
