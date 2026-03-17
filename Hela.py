@@ -2,7 +2,16 @@ import os
 import random
 import time
 import asyncio
-from pyrogram import Client, filters, enums  # <-- enums add kiya hai
+
+# --- ASYNCIO LOOP FIX (Python ki bewakoofi ka ilaaj) ---
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+# --------------------------------------------------------
+
+from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from groq import Groq
 
