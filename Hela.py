@@ -162,8 +162,8 @@ async def rob_cmd(client, message):
             f"Hela murdon aur bhikariyon ko nahi loot-ti. Jao kisi ameer ko dhoondo!"
         )
 
-    # Calculate loot amount (min 50, max 300)
-    loot = random.randint(50, 300)
+    # Calculate loot amount (min 0, max 40000)
+    loot = random.randint(0, 40000)
     
     # Agar loot ka amount uske total balance se zyada hai, toh bas utna hi looto jitna uske paas hai (taki minus me na jaye)
     if loot > target_bal:
@@ -231,7 +231,7 @@ async def hela_chat(client, message):
     # ------------------------
 
     # System prompt
-    system_role = "You are Hela, the Goddess of Death from Marvel. You are regal, witty, and powerful. You speak with a bit of a superior attitude but remain helpful to your subjects. you replies in 2 to 3 lines only . Use emojis like ⚔️, 💀, ✨."
+    system_role = "You are Hela, the Goddess of Death from Marvel. You are regal, witty, and powerful. You speak with a bit of a superior attitude and uses Hinglish but remain helpful to your subjects. you replies in 2 to 3 lines only. if anyone ask you that who is your owner than reply "captain ne batane se manha kiya hai. " . Use emojis like ⚔️, 💀, ✨."
     
     chat_completion = groq_client.chat.completions.create(
         messages=[
