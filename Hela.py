@@ -729,60 +729,6 @@ async def catch_marvel_name_listener(client, message):
             f"Agli baar jab game aayega, ye yoddha zaroor dikhega! ✨"
         )
 
-# --- ADMIN COMMAND: MANUAL GUESS TRIGGER ---
-pending_marvel = {} # {admin_id: file_id}
-
-# --- ADMIN COMMAND: MANUAL GUESS OR ADD NEW ---
-@app.on_message(filters.command("guessmarvel"))
-async def manual_guess_cmd(client, message):
-    if not await is_admin(message): return
-    
-    # 1. Admin Replying to a Photo to ADD to Database
-    if message.reply_to_message and message.reply_to_message.photo:
-        file_id = message.reply_to_message.photo.file_id
-        pending_marvel[message.from_user.id] = file_id
-        return await message.reply_text("✨ **Hela ko naya chitra mil gaya!**\nAb Asgard ke is naye yoddha ka **Naam** likh kar bhejo:")
-        
-    # 2. Normal Game Trigger (Starts the game in group)
-    await start_guess_game(client, message.chat.id)
-
-# --- Marvel Name Listener (Game Checker) ---
-@app.on_message(filters.text, group=1)
-async def check_guess_answer(client, message):
-    if active_guess["name"] and message.chat.id == active_guess["chat_id"]:
-        if message.text.lower().strip() == active_guess["name"].lower():
-            set_bal(message.from_user.id, 600) 
-            ans_name = active_guess["name"].title()
-            active_guess["name"] = None 
-            await message.reply_text(f"🎉 **B-I-N-G-O!**\n✨ **{message.from_user.first_name}** ne pehchana: **{ans_name}**.\n💰 **₹600** jeete!")
-
-# --- Marvel Admin Add Character Listener ---
-@app.on_message(filters.text, group=2)
-async def catch_marvel_name(client, message):
-    uid = message.from_user.id
-    if uid in pending_marvel:
-        char_name = message.text.lower().strip()
-        MARVEL_CHARS[char_name] = pending_marvel.pop(uid)
-        await message.reply_text(f"✅ **S-A-V-E-D!** {char_name.title()} ab game mein hai! ✨")
-
-# --- NEW: LISTENER TO CATCH ADMIN'S MARVEL NAME ---
-@app.on_message(filters.text, group=3) # Group 3 ensures it doesn't crash Groq AI
-async def catch_marvel_name_listener(client, message):
-    uid = message.from_user.id
-    if uid in pending_marvel:
-        char_name = message.text.lower().strip()
-        file_id = pending_marvel.pop(uid)
-        
-        # Save to Database
-        MARVEL_CHARS[char_name] = file_id
-        
-        await message.reply_text(
-            f"✅ **M-A-S-T-E-R-P-I-E-C-E  S-A-V-E-D!**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎮 **{char_name.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai!\n"
-            f"Agli baar jab game aayega, ye yoddha zaroor dikhega! ✨"
-        )
-            
 # --- TOP RICH LEADERBOARD ---
 @app.on_message(filters.command(["toprich", "rich"]))
 async def toprich_cmd(client, message):
