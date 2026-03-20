@@ -2,7 +2,7 @@ import os
 import random
 import time
 import asyncio
-
+from gtts import gTTS
 # --- ASYNCIO LOOP FIX (Python ki bewakoofi ka ilaaj) ---
 try:
     loop = asyncio.get_event_loop()
@@ -1082,6 +1082,42 @@ async def admincmds_cmd(client, message):
         "⚠️ *Aam insaan inhe chhoone ki koshish na kare!*"
     )
     await message.reply_text(text)
+
+# --- VOICE COMMAND (Text to Speech) ---
+@app.on_message(filters.command(["calvin", "speak", "voice"]))
+async def voice_cmd(client, message):
+    if len(message.command) < 2:
+        return await message.reply_text("🗣️ **Kya bolna hai? Likh kar batao!**\nExample: `/calvin Hela is the true queen of Asgard!`")
+    
+    # User ne jo likha hai usko nikalna
+    text_to_speak = message.text.split(None, 1)[1]
+    
+    # Processing message
+    status_msg = await message.reply_text("✨ Hela apne shabdon ko aawaz de rahi hai...")
+    
+    try:
+        # Voice generate karna (Google ki aawaz)
+        tts = gTTS(text=text_to_speak, lang='hi', tld='co.in') # 'hi' for Hindi/English mix
+        audio_file = f"voice_{message.from_user.id}.ogg"
+        
+        # Audio file save karna
+        tts.save(audio_file)
+        
+        # Voice note (audio) bhejna
+        await client.send_voice(
+            chat_id=message.chat.id,
+            voice=audio_file,
+            caption=f"🗣️ **{message.from_user.first_name} ki Aawaz!**",
+            reply_to_message_id=message.reply_to_message.id if message.reply_to_message else message.id
+        )
+        
+        # Kuda (Temporary file) delete karna taaki Render ka storage full na ho
+        os.remove(audio_file)
+        await status_msg.delete()
+        
+    except Exception as e:
+        await status_msg.edit_text("❌ **Gala kharab hai! Aawaz nahi nikal rahi.**")
+        print(f"Voice Error: {e}")
 
 # --- RENDER PORT FIX (Nakli Website) ---
 import threading
