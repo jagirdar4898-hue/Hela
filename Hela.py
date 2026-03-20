@@ -207,6 +207,50 @@ async def accept_cmd(client, message):
     else:
         await message.reply_text("Aapke paas koi loan offer nahi hai.")
 
+# --- GIVE / PAY COMMAND (User to User Transfer) ---
+@app.on_message(filters.command(["give", "pay", "transfer"]))
+async def give_cmd(client, message):
+    if not message.reply_to_message:
+        return await message.reply_text("💸 **Kise daan dena hai? Pehle kisi ke message par reply karo!**")
+    
+    if len(message.command) < 2:
+        return await message.reply_text("💰 **Kitni raqam deni hai? Likh kar batao!\nExample:** `/give 500`")
+    
+    try:
+        amount = int(message.command[1])
+    except ValueError:
+        return await message.reply_text("❌ **Sirf numbers likho, Asgard mein alphabet wale sikke nahi chalte!**")
+
+    if amount <= 0:
+        return await message.reply_text("💀 **Hela ke saath mazaak? Zero ya negative raqam nahi bhej sakte!**")
+
+    sender = message.from_user
+    receiver = message.reply_to_message.from_user
+
+    # Khud ko paise bhejte waqt rokne ke liye
+    if sender.id == receiver.id:
+        return await message.reply_text("💀 **Khud ki ek jeb se nikal kar dusri jeb mein daal rahe ho? Murkh Mortal!**")
+
+    # Bot ko paise bhejne se rokne ke liye
+    if receiver.id == client.me.id:
+        return await message.reply_text("👑 **Hela ko tumhare chillar nahi chahiye. Kisi Insaan ko do!**")
+
+    # Balance check
+    sender_bal = get_bal(sender.id)
+    if sender_bal < amount:
+        return await message.reply_text(f"💸 **Tumhari aukaat nahi hai itna daan dene ki! Tumhare paas sirf ₹{sender_bal} hain.**")
+
+    # Transaction (Sender se cut, Receiver mein add)
+    set_bal(sender.id, -amount)
+    set_bal(receiver.id, amount)
+
+    await message.reply_text(
+        f"🤝 **G-E-N-E-R-O-S-I-T-Y!**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"✨ **{sender.first_name}** ne apni marzi se **{receiver.first_name}** ko **₹{amount}** daan mein diye hain!\n\n"
+        f"💰 Dono ka khazana update ho gaya hai. Hela is bhaichare par muskura rahi hai! 🖤"
+    )
+
 # --- Groq AI (Latest Llama-3.3-70b-versatile) ---
 @app.on_message(filters.text & ~filters.regex(r"^/"), group=4)
 async def hela_chat(client, message):
