@@ -1054,11 +1054,14 @@ auto_guess_status = {}
 adding_marvel_name = {} # {admin_id: file_id}
 
 # 1. ADMIN ADD PHOTO COMMAND (/marvel)
-@app.on_message(filters.command("marvel") & filters.reply)
+@app.on_message(filters.command("marvel"))
 async def add_marvel_cmd(client, message):
     if not await is_admin(message): return
-    if not message.reply_to_message.photo:
-        return await message.reply_text("❌ **Sirf photo par reply karke likho:** `/marvel`")
+    
+    # Bina reply ke Groq ko rokne ke liye
+    if not message.reply_to_message or not message.reply_to_message.photo:
+        await message.reply_text("❌ **Sirf photo par reply karke likho:** `/marvel`")
+        raise StopPropagation # Groq ko is command par bakwas karne se rokega
     
     file_id = message.reply_to_message.photo.file_id
     adding_marvel_name[message.from_user.id] = file_id
@@ -1066,9 +1069,11 @@ async def add_marvel_cmd(client, message):
     await message.reply_text("✨ **Hela ko chitra mil gaya!**\nAb jaldi se Asgard ke is yoddha ka **Naam** likh kar bhejo (jaise: Iron Man):")
     raise StopPropagation # Groq AI ko rokne ke liye
 
-# 2. HELA LISTENS FOR NAME & GAME GUESSES (Sabse Pehle Ye Chalega)
+# 2. HELA LISTENS FOR NAME & GAME GUESSES
 @app.on_message(filters.text, group=1)
 async def master_text_listener(client, message):
+    if not message.from_user: return # 🔥 Fix for Anonymous Admin Crash
+    
     uid = message.from_user.id
     chat_id = message.chat.id
     user_text = message.text.strip().lower()
@@ -1083,7 +1088,7 @@ async def master_text_listener(client, message):
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🎮 **{user_text.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai! ✨"
         )
-        raise StopPropagation # ❤️ Groq AI ko "Acha naam hai" bolne se rok dega!
+        raise StopPropagation # ❤️ Groq AI ko naam par bolne se rok dega!
 
     # CASE B: Game chal raha hai aur log answer de rahe hain
     if active_guess.get("name") and chat_id == active_guess.get("chat_id"):
@@ -1095,9 +1100,10 @@ async def master_text_listener(client, message):
             set_bal(uid, 600) 
             ans_name = active_guess["name"].title()
             
-            # Turant Game Lock Karo
+            # Turant Game Lock Karo (Aur msg_id clear karo taaki timer crash na ho)
             active_guess["name"] = None 
             active_guess["chat_id"] = None
+            active_guess["msg_id"] = None # 🔥 Fix for 10 Min Timer Crash
             
             await message.reply_text(
                 f"🎉 **B-I-N-G-O!**\n"
@@ -1140,13 +1146,15 @@ async def start_guess_game(client, chat_id):
     except Exception as e:
         print(f"Guess game error: {e}")
 
-# 4. 10 MINUTE TIMER
+# 4. 10 MINUTE TIMER (Crash Fix Applied)
 async def guess_timer(client, chat_id, msg_id):
     await asyncio.sleep(600) # 600 seconds = 10 mins
-    if active_guess["msg_id"] == msg_id:
+    # Sirf tabhi end karo jab game sach mein chalu ho aur wahi message ho
+    if active_guess.get("msg_id") == msg_id and active_guess.get("name"):
         old_name = active_guess.get("name", "Unknown").title()
         active_guess["name"] = None 
         active_guess["chat_id"] = None
+        active_guess["msg_id"] = None
         try:
             await client.delete_messages(chat_id, msg_id)
             await client.send_message(chat_id, f"⏳ **Waqt khatam!** Kisi ne Asgard ke yoddha ko nahi pehchana.\n🦸‍♂️ Wo **{old_name}** tha! Khel samapt! 💀")
