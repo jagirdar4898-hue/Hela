@@ -3,6 +3,7 @@ import random
 import time
 import asyncio
 from gtts import gTTS
+from pyrogram import StopPropagation
 # --- ASYNCIO LOOP FIX (Python ki bewakoofi ka ilaaj) ---
 try:
     loop = asyncio.get_event_loop()
@@ -1044,39 +1045,69 @@ async def admincmds_cmd(client, message):
     await message.reply_text(text)
 
 # ==========================================
-# --- MARVEL GUESS GAME (DYNAMIC DATABASE) ---
+# --- MARVEL GUESS GAME (PRO LEVEL FIX) ---
 # ==========================================
 
-MARVEL_CHARS = {} # Hela ki memory ab khali hai, Admin khud add karenge!
+MARVEL_CHARS = {} # Hela ki memory ab khali hai
 active_guess = {"chat_id": None, "name": None, "msg_id": None}
 auto_guess_status = {}
-pending_marvel_add = {} # {admin_id: file_id}
+adding_marvel_name = {} # {admin_id: file_id}
 
 # 1. ADMIN ADD PHOTO COMMAND (/marvel)
-@app.on_message(filters.command("marvel"))
+@app.on_message(filters.command("marvel") & filters.reply)
 async def add_marvel_cmd(client, message):
     if not await is_admin(message): return
-    if not message.reply_to_message or not message.reply_to_message.photo:
-        return await message.reply_text("✨ **Kisi Photo par reply karke likho:** `/marvel`")
+    if not message.reply_to_message.photo:
+        return await message.reply_text("❌ **Sirf photo par reply karke likho:** `/marvel`")
     
     file_id = message.reply_to_message.photo.file_id
-    pending_marvel_add[message.from_user.id] = file_id
-    await message.reply_text("✨ **Hela ko chitra mil gaya!**\nAb Asgard ke is yoddha ka **Naam** likh kar bhejo:")
+    adding_marvel_name[message.from_user.id] = file_id
+    
+    await message.reply_text("✨ **Hela ko chitra mil gaya!**\nAb jaldi se Asgard ke is yoddha ka **Naam** likh kar bhejo (jaise: Iron Man):")
+    raise StopPropagation # Groq AI ko rokne ke liye
 
-# 2. HELA LISTENS FOR NAME (Admin types the name)
-@app.on_message(filters.text, group=3)
-async def save_marvel_name(client, message):
+# 2. HELA LISTENS FOR NAME & GAME GUESSES (Sabse Pehle Ye Chalega)
+@app.on_message(filters.text, group=1)
+async def master_text_listener(client, message):
     uid = message.from_user.id
-    if uid in pending_marvel_add:
-        char_name = message.text.strip().lower()
-        file_id = pending_marvel_add.pop(uid)
-        MARVEL_CHARS[char_name] = file_id # Save in memory
+    chat_id = message.chat.id
+    user_text = message.text.strip().lower()
+
+    # CASE A: Admin photo ka naam bhej raha hai
+    if uid in adding_marvel_name:
+        file_id = adding_marvel_name.pop(uid)
+        MARVEL_CHARS[user_text] = file_id # Memory mein save
         
         await message.reply_text(
             f"✅ **S-A-V-E-D!**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎮 **{char_name.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai! ✨"
+            f"🎮 **{user_text.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai! ✨"
         )
+        raise StopPropagation # ❤️ Groq AI ko "Acha naam hai" bolne se rok dega!
+
+    # CASE B: Game chal raha hai aur log answer de rahe hain
+    if active_guess.get("name") and chat_id == active_guess.get("chat_id"):
+        correct_answer = active_guess["name"].lower()
+        
+        # STRICT MATCH (Ekdum Sahi Naam Chahiye)
+        if user_text == correct_answer:
+            # Inaam aur Name Title
+            set_bal(uid, 600) 
+            ans_name = active_guess["name"].title()
+            
+            # Turant Game Lock Karo
+            active_guess["name"] = None 
+            active_guess["chat_id"] = None
+            
+            await message.reply_text(
+                f"🎉 **B-I-N-G-O!**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
+                f"🦸‍♂️ Sahi Jawab: **{ans_name}**\n"
+                f"💰 Inaam: **₹600** aapke khate mein jama ho gaye!\n"
+                f"⏳ Ab agle chitra ka intezaar karo."
+            )
+            raise StopPropagation # ❤️ Winner ke message par Groq ko chup rakhega!
 
 # 3. GAME START LOGIC
 async def start_guess_game(client, chat_id):
@@ -1113,11 +1144,12 @@ async def start_guess_game(client, chat_id):
 async def guess_timer(client, chat_id, msg_id):
     await asyncio.sleep(600) # 600 seconds = 10 mins
     if active_guess["msg_id"] == msg_id:
+        old_name = active_guess.get("name", "Unknown").title()
         active_guess["name"] = None 
         active_guess["chat_id"] = None
         try:
             await client.delete_messages(chat_id, msg_id)
-            await client.send_message(chat_id, "⏳ **Waqt khatam!** Kisi ne Marvel Hero ko nahi pehchana. Khel samapt! 💀")
+            await client.send_message(chat_id, f"⏳ **Waqt khatam!** Kisi ne Asgard ke yoddha ko nahi pehchana.\n🦸‍♂️ Wo **{old_name}** tha! Khel samapt! 💀")
         except: pass
 
 # 5. MANUAL START COMMAND (/guessmarvel)
@@ -1145,30 +1177,6 @@ async def toggle_autoguess(client, message):
         auto_guess_status[chat_id] = True
         await message.reply_text("✅ **Auto-Guess Activated!** Ab Asgardian jadu se har 25 minute mein ek naya photo aayega! ✨")
         asyncio.create_task(auto_guess_loop(client, chat_id))
-
-# 7. STRICT GAME CHECKER (Answer Scanner)
-@app.on_message(filters.text, group=1)
-async def check_guess_answer(client, message):
-    if active_guess.get("name") and message.chat.id == active_guess.get("chat_id"):
-        user_text = message.text.strip().lower()
-        correct_answer = active_guess["name"].lower()
-        
-        if user_text == correct_answer:
-            set_bal(message.from_user.id, 600) 
-            ans_name = active_guess["name"].title()
-            
-            # Game Lock
-            active_guess["name"] = None 
-            active_guess["chat_id"] = None
-            
-            await message.reply_text(
-                f"🎉 **B-I-N-G-O!**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
-                f"🦸‍♂️ Sahi Jawab: **{ans_name}**\n"
-                f"💰 Inaam: **₹600** aapke khate mein jama ho gaye!\n"
-                f"⏳ Ab agle chitra ka intezaar karo."
-            )
 # ==========================================
 
 # --- VOICE COMMAND (Text to Speech) ---
