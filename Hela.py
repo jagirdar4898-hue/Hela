@@ -11,7 +11,7 @@ except RuntimeError:
     asyncio.set_event_loop(loop)
 # --------------------------------------------------------
 
-from pyrogram import Client, filters, enums
+from pyrogram import Client, filters, enums, compose
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from groq import Groq
 
