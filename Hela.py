@@ -687,138 +687,7 @@ async def revive_cmd(client, message):
         f"🕊️ Naya jeevan mubarak ho Mortal!"
     )
 
-# --- MARVEL GUESS GAME DATABASE & LOGIC ---
-MARVEL_CHARS = {
-    "iron man": "https://i.annihil.us/u/prod/marvel/i/mg/9/c0/527bb7b37ff55/standard_xlarge.jpg",
-    "thor": "https://i.annihil.us/u/prod/marvel/i/mg/d/d0/5269657a74350/standard_xlarge.jpg",
-    "spider man": "https://i.annihil.us/u/prod/marvel/i/mg/3/50/526548a343e4b/standard_xlarge.jpg",
-    "captain america": "https://i.annihil.us/u/prod/marvel/i/mg/3/50/537ba56d31087/standard_xlarge.jpg",
-    "hulk": "https://i.annihil.us/u/prod/marvel/i/mg/5/a0/538615ca33ab0/standard_xlarge.jpg",
-    "black widow": "https://i.annihil.us/u/prod/marvel/i/mg/f/30/50fecad1f395b/standard_xlarge.jpg",
-    "hela": "https://i.annihil.us/u/prod/marvel/i/mg/4/20/546a1617e91d5/standard_xlarge.jpg"
-}
 
-active_guess = {"chat_id": None, "name": None, "msg_id": None}
-auto_guess_status = {}
-pending_marvel = {} # {admin_id: file_id}
-
-# Game Start Function
-async def start_guess_game(client, chat_id):
-    char_name, char_img = random.choice(list(MARVEL_CHARS.items()))
-    
-    try:
-        msg = await client.send_photo(
-            chat_id, 
-            photo=char_img, 
-            caption=(
-                "🎮 **G-U-E-S-S  T-H-E  M-A-R-V-E-L  L-E-G-E-N-D!**\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "✨ Pehchano is dhurandhar ko aur sirf naam likh kar bhejo!\n"
-                "💰 Sahi jawab dene wale ko milenge **₹600**!\n"
-                "⏳ Tumhare paas sirf **10 Minute** hain."
-            )
-        )
-        active_guess["chat_id"] = chat_id
-        active_guess["name"] = char_name
-        active_guess["msg_id"] = msg.id
-        
-        # 10 minute delete timer start karein
-        asyncio.create_task(guess_timer(client, chat_id, msg.id))
-    except Exception as e:
-        print(f"Guess game error: {e}")
-
-# Timer Function (10 minutes)
-async def guess_timer(client, chat_id, msg_id):
-    await asyncio.sleep(600) # 10 minutes = 600 seconds
-    if active_guess["msg_id"] == msg_id: # Agar abhi bhi wahi game chal raha hai
-        active_guess["name"] = None # Game over
-        try:
-            await client.delete_messages(chat_id, msg_id)
-            await client.send_message(chat_id, "⏳ **Waqt khatam!** Kisi ne Marvel Hero ko nahi pehchana. Khel samapt! 💀")
-        except:
-            pass
-
-# --- ADMIN COMMAND: START/STOP 25 MIN AUTO LOOP ---
-async def auto_guess_loop(client, chat_id):
-    while auto_guess_status.get(chat_id, False):
-        await asyncio.sleep(1500) # Wait 25 minutes
-        if auto_guess_status.get(chat_id, False):
-            await start_guess_game(client, chat_id)
-
-@app.on_message(filters.command("autoguess"))
-async def toggle_autoguess(client, message):
-    if not await is_admin(message): return
-    chat_id = message.chat.id
-    
-    if auto_guess_status.get(chat_id, False):
-        auto_guess_status[chat_id] = False
-        await message.reply_text("🛑 **Auto-Guess Deactivated!** Ab har 25 minute mein game nahi aayega.")
-    else:
-        auto_guess_status[chat_id] = True
-        await message.reply_text("✅ **Auto-Guess Activated!** Ab Asgardian jadu se har 25 minute mein ek naya photo aayega! ✨")
-        asyncio.create_task(auto_guess_loop(client, chat_id))
-
-# --- ADMIN COMMAND: MANUAL GUESS OR ADD NEW ---
-@app.on_message(filters.command("guessmarvel"))
-async def manual_guess_cmd(client, message):
-    if not await is_admin(message): return
-    
-    # 1. Admin Replying to a Photo to ADD to Database
-    if message.reply_to_message and message.reply_to_message.photo:
-        file_id = message.reply_to_message.photo.file_id
-        pending_marvel[message.from_user.id] = file_id
-        return await message.reply_text("✨ **Hela ko naya chitra mil gaya!**\nAb Asgard ke is naye yoddha ka **Naam** likh kar bhejo:")
-        
-    # 2. Normal Game Trigger (Starts the game in group)
-    await start_guess_game(client, message.chat.id)
-
-# --- Marvel Name Listener (Strict Game Checker) ---
-@app.on_message(filters.text, group=1)
-async def check_guess_answer(client, message):
-    # Check 1: Kya game on hai aur usi group mein message aaya hai?
-    if active_guess.get("name") and message.chat.id == active_guess.get("chat_id"):
-        
-        # User ka exact message (aage-peeche ke spaces hatakar, small letters mein)
-        user_text = message.text.strip().lower()
-        correct_answer = active_guess["name"].lower()
-        
-        # Check 2: STRICT MATCH (Koi paragraph nahi, exact word to word match)
-        if user_text == correct_answer:
-            
-            # Jeetne wale ko inaam do
-            set_bal(message.from_user.id, 900) 
-            ans_name = active_guess["name"].title()
-            
-            # Turant Game Lock Karo (Taaki koi aur doosri baar jeet na sake)
-            active_guess["name"] = None 
-            active_guess["chat_id"] = None
-            
-            await message.reply_text(
-                f"🎉 **B-I-N-G-O!**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
-                f"🦸‍♂️ Sahi Jawab: **{ans_name}**\n"
-                f"💰 Inaam: **₹900** aapke khate mein jama ho gaye!\n"
-                f"⏳ Ab agle chitra ka intezaar karo."
-            )
-
-# --- Marvel Admin Add Character Listener ---
-@app.on_message(filters.text, group=3) # Group 3 ensures it doesn't crash Groq AI
-async def catch_marvel_name_listener(client, message):
-    uid = message.from_user.id
-    if uid in pending_marvel:
-        char_name = message.text.lower().strip()
-        file_id = pending_marvel.pop(uid)
-        
-        # Save to Database
-        MARVEL_CHARS[char_name] = file_id
-        
-        await message.reply_text(
-            f"✅ **M-A-S-T-E-R-P-I-E-C-E  S-A-V-E-D!**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎮 **{char_name.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai!\n"
-            f"Agli baar jab game aayega, ye yoddha zaroor dikhega! ✨"
-        )
 
 # --- TOP RICH LEADERBOARD ---
 @app.on_message(filters.command(["toprich", "rich"]))
@@ -1173,6 +1042,134 @@ async def admincmds_cmd(client, message):
         "⚠️ *Aam insaan inhe chhoone ki koshish na kare!*"
     )
     await message.reply_text(text)
+
+# ==========================================
+# --- MARVEL GUESS GAME (DYNAMIC DATABASE) ---
+# ==========================================
+
+MARVEL_CHARS = {} # Hela ki memory ab khali hai, Admin khud add karenge!
+active_guess = {"chat_id": None, "name": None, "msg_id": None}
+auto_guess_status = {}
+pending_marvel_add = {} # {admin_id: file_id}
+
+# 1. ADMIN ADD PHOTO COMMAND (/marvel)
+@app.on_message(filters.command("marvel"))
+async def add_marvel_cmd(client, message):
+    if not await is_admin(message): return
+    if not message.reply_to_message or not message.reply_to_message.photo:
+        return await message.reply_text("✨ **Kisi Photo par reply karke likho:** `/marvel`")
+    
+    file_id = message.reply_to_message.photo.file_id
+    pending_marvel_add[message.from_user.id] = file_id
+    await message.reply_text("✨ **Hela ko chitra mil gaya!**\nAb Asgard ke is yoddha ka **Naam** likh kar bhejo:")
+
+# 2. HELA LISTENS FOR NAME (Admin types the name)
+@app.on_message(filters.text, group=3)
+async def save_marvel_name(client, message):
+    uid = message.from_user.id
+    if uid in pending_marvel_add:
+        char_name = message.text.strip().lower()
+        file_id = pending_marvel_add.pop(uid)
+        MARVEL_CHARS[char_name] = file_id # Save in memory
+        
+        await message.reply_text(
+            f"✅ **S-A-V-E-D!**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎮 **{char_name.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai! ✨"
+        )
+
+# 3. GAME START LOGIC
+async def start_guess_game(client, chat_id):
+    if not MARVEL_CHARS:
+        try:
+            await client.send_message(chat_id, "❌ **Khazana Khali Hai!**\nPehle Senapati (Admin) kisi photo par `/marvel` reply karke hero add karein.")
+        except: pass
+        return
+        
+    char_name, file_id = random.choice(list(MARVEL_CHARS.items()))
+    
+    try:
+        msg = await client.send_photo(
+            chat_id, 
+            photo=file_id, 
+            caption=(
+                "🎮 **G-U-E-S-S  T-H-E  M-A-R-V-E-L  L-E-G-E-N-D!**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "✨ Pehchano is dhurandhar ko aur sirf naam likh kar bhejo!\n"
+                "💰 Sahi jawab dene wale ko milenge **₹600**!\n"
+                "⏳ Tumhare paas sirf **10 Minute** hain."
+            )
+        )
+        active_guess["chat_id"] = chat_id
+        active_guess["name"] = char_name
+        active_guess["msg_id"] = msg.id
+        
+        # 10 minute ka timer
+        asyncio.create_task(guess_timer(client, chat_id, msg.id))
+    except Exception as e:
+        print(f"Guess game error: {e}")
+
+# 4. 10 MINUTE TIMER
+async def guess_timer(client, chat_id, msg_id):
+    await asyncio.sleep(600) # 600 seconds = 10 mins
+    if active_guess["msg_id"] == msg_id:
+        active_guess["name"] = None 
+        active_guess["chat_id"] = None
+        try:
+            await client.delete_messages(chat_id, msg_id)
+            await client.send_message(chat_id, "⏳ **Waqt khatam!** Kisi ne Marvel Hero ko nahi pehchana. Khel samapt! 💀")
+        except: pass
+
+# 5. MANUAL START COMMAND (/guessmarvel)
+@app.on_message(filters.command("guessmarvel"))
+async def guessmarvel_cmd(client, message):
+    if not await is_admin(message): return
+    await start_guess_game(client, message.chat.id)
+
+# 6. AUTO-GUESS LOOP (Every 25 Mins)
+async def auto_guess_loop(client, chat_id):
+    while auto_guess_status.get(chat_id, False):
+        await asyncio.sleep(1500) # Wait 25 minutes
+        if auto_guess_status.get(chat_id, False):
+            await start_guess_game(client, chat_id)
+
+@app.on_message(filters.command("autoguess"))
+async def toggle_autoguess(client, message):
+    if not await is_admin(message): return
+    chat_id = message.chat.id
+    
+    if auto_guess_status.get(chat_id, False):
+        auto_guess_status[chat_id] = False
+        await message.reply_text("🛑 **Auto-Guess Deactivated!** Ab har 25 minute mein game nahi aayega.")
+    else:
+        auto_guess_status[chat_id] = True
+        await message.reply_text("✅ **Auto-Guess Activated!** Ab Asgardian jadu se har 25 minute mein ek naya photo aayega! ✨")
+        asyncio.create_task(auto_guess_loop(client, chat_id))
+
+# 7. STRICT GAME CHECKER (Answer Scanner)
+@app.on_message(filters.text, group=1)
+async def check_guess_answer(client, message):
+    if active_guess.get("name") and message.chat.id == active_guess.get("chat_id"):
+        user_text = message.text.strip().lower()
+        correct_answer = active_guess["name"].lower()
+        
+        if user_text == correct_answer:
+            set_bal(message.from_user.id, 600) 
+            ans_name = active_guess["name"].title()
+            
+            # Game Lock
+            active_guess["name"] = None 
+            active_guess["chat_id"] = None
+            
+            await message.reply_text(
+                f"🎉 **B-I-N-G-O!**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
+                f"🦸‍♂️ Sahi Jawab: **{ans_name}**\n"
+                f"💰 Inaam: **₹600** aapke khate mein jama ho gaye!\n"
+                f"⏳ Ab agle chitra ka intezaar karo."
+            )
+# ==========================================
 
 # --- VOICE COMMAND (Text to Speech) ---
 @app.on_message(filters.command(["calvin", "speak", "voice"]))
