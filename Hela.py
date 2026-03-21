@@ -29,6 +29,10 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 # Database (For Demo: In-memory dictionary)
 economy = {} 
 loans = {}
+# --- GAME DATABASE ---
+active_guess = {"name": None, "chat_id": None}
+auto_guess_enabled = {} # Auto-guess ke liye bhi zaroori hai
+
 # --- ADMIN IDs & NEW DATABASE ---
 ADMIN_IDS = [7574760011, 8099984863]
 warns = {}
