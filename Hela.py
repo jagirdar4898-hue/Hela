@@ -288,10 +288,15 @@ async def hela_chat(client, message):
     response = chat_completion.choices[0].message.content
     await message.reply_text(response)
     
-# --- LEGENDARY FUN COMMANDS: PUNCH, SLAP, FIGHT ---
+# --- LEGENDARY FUN COMMANDS: PUNCH, SLAP, FIGHT (With GIF Support) ---
 
 @app.on_message(filters.command("punch"))
 async def punch_cmd(client, message):
+    if await is_admin(message) and message.reply_to_message and (message.reply_to_message.photo or message.reply_to_message.animation):
+        msg = message.reply_to_message
+        rp_media["punch"].append({"type": "photo" if msg.photo else "animation", "id": msg.photo.file_id if msg.photo else msg.animation.file_id})
+        return await message.reply_text("✨ **V-A-U-L-T  U-P-D-A-T-E-D!**\nYe kaufnaak Punch save ho gaya! 🥊")
+
     if not message.reply_to_message:
         return await message.reply_text("✨ **Kise maut ka swaad chakhana hai? Pehle reply toh karo!**")
     
@@ -303,40 +308,58 @@ async def punch_cmd(client, message):
         f"🥊 **{sender}** ka ek mukka aur **{victim}** seedha Asgard se dharti par ja gira!",
         f"💥 Ek jordar prahaar! **{sender}** ne **{victim}** ko hawa mein uchhaal diya!"
     ]
-    await message.reply_text(random.choice(punches))
+    text = random.choice(punches)
+    
+    if rp_media["punch"]:
+        m = random.choice(rp_media["punch"])
+        await (client.send_photo if m["type"] == "photo" else client.send_animation)(message.chat.id, m["id"], caption=text, reply_to_message_id=message.reply_to_message.id)
+    else: await message.reply_text(text)
 
 @app.on_message(filters.command("slap"))
 async def slap_cmd(client, message):
+    if await is_admin(message) and message.reply_to_message and (message.reply_to_message.photo or message.reply_to_message.animation):
+        msg = message.reply_to_message
+        rp_media["slap"].append({"type": "photo" if msg.photo else "animation", "id": msg.photo.file_id if msg.photo else msg.animation.file_id})
+        return await message.reply_text("✨ **V-A-U-L-T  U-P-D-A-T-E-D!**\nYe zordaar Slap save ho gaya! 🖐️")
+
     if not message.reply_to_message:
         return await message.reply_text("✨ **Meri deni hui shaktiyon ka upyog sahi jagah karo! Reply to someone!**")
     
     victim = message.reply_to_message.from_user.first_name
     sender = message.from_user.first_name
+    text = f"🖐️ **S-L-A-P!**\n\n**{sender}** ne **{victim}** ko itna zor se thappad mara ki 'Multiverse' ke saare sitare nazar aa gaye! 💫"
     
-    await message.reply_text(
-        f"🖐️ **S-L-A-P!**\n\n**{sender}** ne **{victim}** ko itna zor se thappad mara ki 'Multiverse' ke saare sitare nazar aa gaye! 💫"
-    )
+    if rp_media["slap"]:
+        m = random.choice(rp_media["slap"])
+        await (client.send_photo if m["type"] == "photo" else client.send_animation)(message.chat.id, m["id"], caption=text, reply_to_message_id=message.reply_to_message.id)
+    else: await message.reply_text(text)
 
 @app.on_message(filters.command("fight"))
 async def fight_cmd(client, message):
+    if await is_admin(message) and message.reply_to_message and (message.reply_to_message.photo or message.reply_to_message.animation):
+        msg = message.reply_to_message
+        rp_media["fight"].append({"type": "photo" if msg.photo else "animation", "id": msg.photo.file_id if msg.photo else msg.animation.file_id})
+        return await message.reply_text("✨ **V-A-U-L-T  U-P-D-A-T-E-D!**\nYe epic Fight scene save ho gaya! ⚔️")
+
     if not message.reply_to_message:
         return await message.reply_text("⚔️ **Akele kisse ladoge? Kisi gunehgaar par reply karo!**")
     
     victim = message.reply_to_message.from_user.first_name
     sender = message.from_user.first_name
-    
-    # Randomly deciding winner
     winner = random.choice([sender, victim])
     loser = victim if winner == sender else sender
-    
-    fight_text = (
+    text = (
         f"⚔️ **MAUT KA MAIDAN-E-JANG** ⚔️\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔥 **{sender}** aur **{victim}** ke beech ek pralaykaari yuddh shuru hua!\n"
         f"Talwarein takrayi, bijli kadki aur anth mein...\n\n"
         f"🏆 **{winner}** ne **{loser}** ko ghutno par la diya aur vijay prapt ki! 🔥"
     )
-    await message.reply_text(fight_text)
+    
+    if rp_media["fight"]:
+        m = random.choice(rp_media["fight"])
+        await (client.send_photo if m["type"] == "photo" else client.send_animation)(message.chat.id, m["id"], caption=text, reply_to_message_id=message.reply_to_message.id)
+    else: await message.reply_text(text)
 
 # --- LEGENDARY DART (70% WIN CHANCE & PRO STYLE) ---
 
@@ -745,15 +768,35 @@ async def manual_guess_cmd(client, message):
     # 2. Normal Game Trigger (Starts the game in group)
     await start_guess_game(client, message.chat.id)
 
-# --- Marvel Name Listener (Game Checker) ---
+# --- Marvel Name Listener (Strict Game Checker) ---
 @app.on_message(filters.text, group=1)
 async def check_guess_answer(client, message):
-    if active_guess["name"] and message.chat.id == active_guess["chat_id"]:
-        if message.text.lower().strip() == active_guess["name"].lower():
-            set_bal(message.from_user.id, 600) 
+    # Check 1: Kya game on hai aur usi group mein message aaya hai?
+    if active_guess.get("name") and message.chat.id == active_guess.get("chat_id"):
+        
+        # User ka exact message (aage-peeche ke spaces hatakar, small letters mein)
+        user_text = message.text.strip().lower()
+        correct_answer = active_guess["name"].lower()
+        
+        # Check 2: STRICT MATCH (Koi paragraph nahi, exact word to word match)
+        if user_text == correct_answer:
+            
+            # Jeetne wale ko inaam do
+            set_bal(message.from_user.id, 900) 
             ans_name = active_guess["name"].title()
+            
+            # Turant Game Lock Karo (Taaki koi aur doosri baar jeet na sake)
             active_guess["name"] = None 
-            await message.reply_text(f"🎉 **B-I-N-G-O!**\n✨ **{message.from_user.first_name}** ne pehchana: **{ans_name}**.\n💰 **₹600** jeete!")
+            active_guess["chat_id"] = None
+            
+            await message.reply_text(
+                f"🎉 **B-I-N-G-O!**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
+                f"🦸‍♂️ Sahi Jawab: **{ans_name}**\n"
+                f"💰 Inaam: **₹900** aapke khate mein jama ho gaye!\n"
+                f"⏳ Ab agle chitra ka intezaar karo."
+            )
 
 # --- Marvel Admin Add Character Listener ---
 @app.on_message(filters.text, group=3) # Group 3 ensures it doesn't crash Groq AI
@@ -821,7 +864,7 @@ async def topkill_cmd(client, message):
     await message.reply_text(text)
 
 # --- ROLEPLAY MEDIA VAULT ---
-rp_media = {"love": [], "kiss": [], "bite": [], "hug": []}
+rp_media = {"love": [], "kiss": [], "bite": [], "hug": [], "punch": [], "slap": [], "fight": []}
 
 @app.on_message(filters.command("love"))
 async def love_cmd(client, message):
