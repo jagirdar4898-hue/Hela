@@ -3,7 +3,7 @@ import random
 import time
 import asyncio
 from gtts import gTTS
-from pyrogram import StopPropagation
+
 # --- ASYNCIO LOOP FIX (Python ki bewakoofi ka ilaaj) ---
 try:
     loop = asyncio.get_event_loop()
@@ -12,11 +12,12 @@ except RuntimeError:
     asyncio.set_event_loop(loop)
 # --------------------------------------------------------
 
-from pyrogram import Client, filters, enums, compose
+# 🚨 SAARE PYROGRAM IMPORTS YAHAN NEECHE HONGE:
+from pyrogram import Client, filters, enums, compose, StopPropagation
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from groq import Groq
 
-# Render/Environment Variables se keys uthana
+# Render/Environment Variables se keys uthana... 
 BOT_TOKEN = os.environ.get("T")
 GROQ_API_KEY = os.environ.get("G")
 OWNER_ID = 8099984863
