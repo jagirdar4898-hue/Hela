@@ -421,6 +421,42 @@ async def is_admin(message):
 
 # --- MODERATION COMMANDS ---
 
+# --- USERS LIST COMMAND ---
+@app.on_message(filters.command("users"))
+async def users_list_cmd(client, message):
+    if not await is_admin(message): 
+        return await message.reply_text("⛔ **Aukaat mein Mortal!** Ye khufiya list sirf Hela ke Senapati dekh sakte hain.")
+
+    if not economy:
+        return await message.reply_text("📜 **Asgard khali hai!** Abhi tak koi mortal bot se nahi juda.")
+
+    status_msg = await message.reply_text("⌛ **Asgard ki filein kholi ja rahi hain...**")
+    
+    user_list = []
+    # Economy dict se saari IDs nikal kar unka naam fetch karna
+    for uid in economy.keys():
+        try:
+            user = await client.get_users(uid)
+            name = user.first_name if user.first_name else "Unknown"
+            user_list.append(f"👤 {name} (`{uid}`)")
+        except Exception:
+            user_list.append(f"👤 Mysterious Mortal (`{uid}`)")
+
+    # Message splitting logic (Max 4096 characters per message)
+    header = f"👑 **H-E-L-A'S  S-U-B-J-E-C-T-S** (Total: {len(user_list)})\n━━━━━━━━━━━━━━━━━━━━\n"
+    current_msg = header
+    
+    # List ko multiple messages mein bhejna agar badi ho
+    for entry in user_list:
+        if len(current_msg) + len(entry) > 4000:
+            await message.reply_text(current_msg)
+            current_msg = "━━━━━━━━━━━━━━━━━━━━\n" + entry + "\n"
+        else:
+            current_msg += entry + "\n"
+
+    await message.reply_text(current_msg)
+    await status_msg.delete()
+
 @app.on_message(filters.command("ban"))
 async def ban_cmd(client, message):
     if not await is_admin(message): return
