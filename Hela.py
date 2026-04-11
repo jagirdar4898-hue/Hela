@@ -421,6 +421,57 @@ async def is_admin(message):
 
 # --- MODERATION COMMANDS ---
 
+# --- BROADCAST COMMAND (Global & Targeted) ---
+@app.on_message(filters.command("broadcast"))
+async def broadcast_cmd(client, message):
+    if not await is_admin(message):
+        return await message.reply_text("⛔ **Aukaat mein!** Ye shakti sirf Hela ke hath mein hai.")
+
+    if len(message.command) < 3:
+        return await message.reply_text(
+            "📢 **Format Galat Hai!**\n\n"
+            "• Sabko bhejne ke liye: `/broadcast all [message]`\n"
+            "• Kisi ID ko bhejne ke liye: `/broadcast [user_id] [message]`"
+        )
+
+    target = message.command[1]
+    broadcast_msg = message.text.split(None, 2)[2]
+    
+    # CASE 1: BROADCAST TO ALL (Users & Groups)
+    if target.lower() == "all":
+        status = await message.reply_text("🚀 **Pralay Shuru!** Sabhi realms mein message bheja ja raha hai...")
+        success = 0
+        failed = 0
+        
+        # Economy se saari IDs nikalna (Users)
+        all_targets = set(list(economy.keys())) 
+        
+        for uid in all_targets:
+            try:
+                await client.send_message(uid, f"📢 **H-E-L-A  F-A-R-M-A-A-N**\n━━━━━━━━━━━━━━━━━━━━\n\n{broadcast_msg}")
+                success += 1
+                await asyncio.sleep(0.1) # Flood wait se bachne ke liye
+            except Exception:
+                failed += 1
+        
+        return await status.edit_text(
+            f"✅ **Broadcast Completed!**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"✨ Sahi se pahucha: `{success}`\n"
+            f"💀 Failed: `{failed}`"
+        )
+
+    # CASE 2: TARGETED BROADCAST (Specific ID)
+    else:
+        try:
+            target_id = int(target)
+            await client.send_message(target_id, f"📢 **H-E-L-A  S-P-E-C-I-A-L  M-S-G**\n━━━━━━━━━━━━━━━━━━━━\n\n{broadcast_msg}")
+            await message.reply_text(f"✨ **Sandesh pahuch gaya!** User `{target_id}` ko Hela ka khat mil gaya hai.")
+        except ValueError:
+            await message.reply_text("❌ **Invalid ID!** 'all' likho ya sahi User ID dalo.")
+        except Exception as e:
+            await message.reply_text(f"❌ **Error:** User ne bot block kiya hai ya ID galat hai.\n`{e}`")
+
 # --- USERS LIST COMMAND ---
 @app.on_message(filters.command("users"))
 async def users_list_cmd(client, message):
