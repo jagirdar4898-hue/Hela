@@ -32,6 +32,7 @@ economy = {}
 loans = {}
 active_guess = {"name": None, "chat_id": None}
 auto_guess_enabled = {}
+tracked_groups = {}  # {chat_id: {"title": str, "added_at": timestamp}}
 group_msg_storage = {}  # {user_id: {"content_type", "content_data", "caption"}}
 group_claim_cooldown = {}  # {chat_id: timestamp}
 # Welcome/Goodbye Messages Database (per group)
@@ -173,6 +174,12 @@ async def kill_cmd(client, message):
         f"⚔️ **Total Kills:** {total_kills}\n"
         f"✨ Aae aise hi aghe badho "
     )
+
+@app.on_message(filters.group & filters.incoming)
+async def track_groups(client, message):
+    chat_id = message.chat.id
+    if chat_id not in tracked_groups:
+        tracked_groups[chat_id] = {"title": message.chat.title, "added_at": time.time()}
 
 @app.on_message(filters.command("rob"))
 async def rob_cmd(client, message):
@@ -1096,10 +1103,6 @@ async def broadcast_cmd(client, message):
                 await message.reply_text(f"❌ **Error:** {e}")
 
 # --- NEW: GROUP SELECTION FOR BROADCAST (Inline Keyboard) ---
-
-# Group selection ke liye temporary storage
-group_msg_storage = {}  # {user_id: {"content_type", "content_data", "caption"}}
-
 @app.on_message(filters.command("groups"))
 async def groups_list_cmd(client, message):
     if not await is_admin(message):
@@ -1143,31 +1146,27 @@ async def groups_list_cmd(client, message):
     else:
         group_msg_storage[message.from_user.id] = None
     
-    # Saare groups fetch karo with error handling
-    try:
-        groups = []
-        async for dialog in client.get_dialogs():
-            if dialog.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-                groups.append(dialog.chat)
-        if not groups:
-            return await message.reply_text("❌ Bot kisi group mein nahi hai! Bot ko pehle group mein add karo.")
-    except Exception as e:
-        return await message.reply_text(f"❌ Groups list laane mein error: {e}")
+    # Tracked groups se list banao (jo bot ne dekha hai)
+    if not tracked_groups:
+        return await message.reply_text("❌ Bot abhi kisi group mein nahi hai! Bot ko group mein add karo aur kuch messages bhejo.")
     
-    # Buttons banane se pehle groups count check
-    if len(groups) == 0:
+    groups = []
+    for chat_id, data in tracked_groups.items():
+        groups.append((chat_id, data["title"]))
+    
+    if not groups:
         return await message.reply_text("❌ Bot kisi group mein nahi hai!")
     
     buttons = []
-    for chat in groups[:50]:
-        buttons.append([InlineKeyboardButton(chat.title, callback_data=f"sendgroup_{chat.id}")])
+    for chat_id, title in groups[:50]:
+        buttons.append([InlineKeyboardButton(title, callback_data=f"sendgroup_{chat_id}")])
     buttons.append([InlineKeyboardButton("📢 Sabhi Groups mein bhejo", callback_data="sendgroup_all")])
     buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="sendgroup_cancel")])
     
     await message.reply_text(
-        "📢 **Group select karo:**\n(Jo message reply kiya tha, wahi bheja jayega)",
+        "📢 **Group select karo:**\n(Jo message reply kiya tha, wahi bheja jayega)\n\nNote: Sirf wahi groups dikh rahe jahan bot ne message dekha hai.",
         reply_markup=InlineKeyboardMarkup(buttons)
-            )
+    )
 
 @app.on_callback_query(filters.regex(r"^sendgroup_"))
 async def send_to_group_callback(client, callback_query):
@@ -1185,38 +1184,35 @@ async def send_to_group_callback(client, callback_query):
         await callback_query.answer()
         return
     
-    # Saare groups list karo
-    groups = []
-    async for dialog in client.get_dialogs():
-        if dialog.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-            groups.append(dialog.chat)
-    
-    if not groups:
-        await callback_query.answer("Koi group nahi mila!", show_alert=True)
+    # Tracked groups se list banao
+    if not tracked_groups:
+        await callback_query.message.edit_text("❌ Koi group track nahi hai.")
+        del group_msg_storage[user_id]
+        await callback_query.answer()
         return
     
     if target == "all":
         await callback_query.answer("Sab groups mein bhej raha hoon...")
         success = 0
         failed = 0
-        for chat in groups:
+        for chat_id, info in tracked_groups.items():
             try:
                 if data and data["content_type"]:
                     ct = data["content_type"]
                     if ct == "text":
-                        await client.send_message(chat.id, data["content_data"])
+                        await client.send_message(chat_id, data["content_data"])
                     elif ct == "photo":
-                        await client.send_photo(chat.id, photo=data["content_data"], caption=data["caption"])
+                        await client.send_photo(chat_id, photo=data["content_data"], caption=data["caption"])
                     elif ct == "video":
-                        await client.send_video(chat.id, video=data["content_data"], caption=data["caption"])
+                        await client.send_video(chat_id, video=data["content_data"], caption=data["caption"])
                     elif ct == "animation":
-                        await client.send_animation(chat.id, animation=data["content_data"], caption=data["caption"])
+                        await client.send_animation(chat_id, animation=data["content_data"], caption=data["caption"])
                     elif ct == "sticker":
-                        await client.send_sticker(chat.id, sticker=data["content_data"])
+                        await client.send_sticker(chat_id, sticker=data["content_data"])
                     elif ct == "document":
-                        await client.send_document(chat.id, document=data["content_data"], caption=data["caption"])
+                        await client.send_document(chat_id, document=data["content_data"], caption=data["caption"])
                 else:
-                    await client.send_message(chat.id, "📢 Hela ka sandesh!")
+                    await client.send_message(chat_id, "📢 Hela ka sandesh!")
                 success += 1
             except Exception:
                 failed += 1
@@ -1224,10 +1220,10 @@ async def send_to_group_callback(client, callback_query):
         await callback_query.message.edit_text(f"✅ {success} groups mein bheja. Failed: {failed}")
         del group_msg_storage[user_id]
     else:
-        # Single group
         try:
             chat_id = int(target)
-            chat = await client.get_chat(chat_id)
+            # Get chat title from tracked_groups if exists
+            chat_title = tracked_groups.get(chat_id, {}).get("title", "Unknown Group")
             if data and data["content_type"]:
                 ct = data["content_type"]
                 if ct == "text":
@@ -1244,24 +1240,11 @@ async def send_to_group_callback(client, callback_query):
                     await client.send_document(chat_id, document=data["content_data"], caption=data["caption"])
             else:
                 await client.send_message(chat_id, "📢 Hela ka sandesh!")
-            await callback_query.message.edit_text(f"✅ {chat.title} mein message bhej diya.")
+            await callback_query.message.edit_text(f"✅ {chat_title} mein message bhej diya.")
         except Exception as e:
             await callback_query.message.edit_text(f"❌ Error: {e}")
         del group_msg_storage[user_id]
     await callback_query.answer()
-
-async def is_group_or_bot_admin(client, message):
-    user_id = message.from_user.id
-    if user_id in ADMIN_IDS:
-        return True
-    if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        try:
-            member = await client.get_chat_member(message.chat.id, user_id)
-            if member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-                return True
-        except:
-            pass
-    return False
 
 # --- OTHER COMMANDS (showid, adminlist, claim, help, usercommands, admincommands) ---
 @app.on_message(filters.command("showid"))
