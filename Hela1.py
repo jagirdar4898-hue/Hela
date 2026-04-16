@@ -32,6 +32,10 @@ economy = {}
 loans = {}
 active_guess = {"name": None, "chat_id": None}
 auto_guess_enabled = {}
+# Welcome/Goodbye Messages Database (per group)
+welcome_msgs = {}   # {chat_id: "custom welcome text with {user} etc"}
+goodbye_msgs = {}   # {chat_id: "custom goodbye text"}
+pending_custom = {} # {admin_id: {"type": "welcome" or "goodbye", "chat_id": chat_id}}
 
 # Admin IDs (Bot Owners)
 ADMIN_IDS = [7574760011, 8099984863]
@@ -57,6 +61,37 @@ def is_protected(uid):
     return False
 
 # Helper functions
+# Default random welcome messages
+DEFAULT_WELCOME = [
+    "✨ {user}, Asgard mein swagat hai! Hela ki kripa tum par bani rahe. 💀",
+    "🖤 {mention}, maut ke darbaar mein aapka swagat hai! Hela khush hui.",
+    "⚔️ {user} aa gaye! Ab maza ayega. Hela dekh rahi hai sabko.",
+    "🌙 {user}, tumhari aatma ab Hela ke adheen hai. Welcome to the dark side!",
+    "💀 {user} pravesh kar chuka hai. Ab iski zindagi ki guarantee koi nahi."
+]
+
+# Default random goodbye messages
+DEFAULT_GOODBYE = [
+    "👋 {user} ne Asgard chhod diya. Hela kehti hai - 'Bhaag mat, main kahin bhi hoon!' 💀",
+    "💨 {mention} gaya! Hela ki aankh se door,.",
+    "⚰️ {user} ka group chhod kar jaana  Hela ne note kar liya.",
+    "🚪 {user} ne darwaza band kar diya. Hela dukhi hai.'",
+    "👻 {user} left ho gaya! Bye bye, mortal."
+]
+
+def get_welcome_msg(chat_id, user_name, user_mention):
+    custom = welcome_msgs.get(chat_id)
+    if custom:
+        return custom.format(user=user_name, mention=user_mention, group=chat_id)
+    else:
+        return random.choice(DEFAULT_WELCOME).format(user=user_name, mention=user_mention)
+
+def get_goodbye_msg(chat_id, user_name, user_mention):
+    custom = goodbye_msgs.get(chat_id)
+    if custom:
+        return custom.format(user=user_name, mention=user_mention, group=chat_id)
+    else:
+        return random.choice(DEFAULT_GOODBYE).format(user=user_name, mention=user_mention)
 def get_bal(uid): return economy.get(uid, 1000)
 def set_bal(uid, amt): economy[uid] = get_bal(uid) + amt
 
@@ -180,6 +215,72 @@ async def loan_cmd(client, message):
     target = message.reply_to_message.from_user
     loans[target.id] = {"from": message.from_user.id, "amt": amt}
     await message.reply_text(f"💸 {message.from_user.first_name} ne aapko **₹{amt}** ka loan offer kiya hai.\nType `/accept` to take it.")
+
+# Welcome new member
+@app.on_chat_member_updated()
+async def welcome_new_member(client, chat_member_updated):
+    # Only if user joins
+    if chat_member_updated.new_chat_member.status == "member" and chat_member_updated.old_chat_member.status in ("left", "kicked", "restricted"):
+        user = chat_member_updated.new_chat_member.user
+        chat_id = chat_member_updated.chat.id
+        mention = f"[{user.first_name}](tg://user?id={user.id})"
+        msg = get_welcome_msg(chat_id, user.first_name, mention)
+        await client.send_message(chat_id, msg, disable_web_page_preview=True)
+
+# Goodbye when member leaves
+@app.on_chat_member_updated()
+async def goodbye_old_member(client, chat_member_updated):
+    # If user leaves or is kicked
+    if chat_member_updated.old_chat_member.status == "member" and chat_member_updated.new_chat_member.status in ("left", "kicked"):
+        user = chat_member_updated.old_chat_member.user
+        chat_id = chat_member_updated.chat.id
+        mention = f"[{user.first_name}](tg://user?id={user.id})"
+        msg = get_goodbye_msg(chat_id, user.first_name, mention)
+        await client.send_message(chat_id, msg, disable_web_page_preview=True)
+
+# Welcome customization
+@app.on_message(filters.command("welcome") & filters.group)
+async def welcome_custom(client, message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # Check if user is group admin or bot admin
+    if not await is_group_or_bot_admin(client, message):
+        # Normal user: just show current welcome message
+        current = welcome_msgs.get(chat_id)
+        if current:
+            await message.reply_text(f"📜 **Current welcome message:**\n\n{current}\n\nUse format: `{{user}}` for name, `{{mention}}` for mention, `{{group}}` for group ID")
+        else:
+            example = random.choice(DEFAULT_WELCOME).format(user="ExampleUser", mention="@user", group=chat_id)
+            await message.reply_text(f"📜 **Default welcome message:**\n\n{example}\n\nAdmin can customize using `/welcome` command.")
+        return
+    
+    # Admin: ask yes/no
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Yes, customize", callback_data=f"custom_welcome_{chat_id}"),
+         InlineKeyboardButton("❌ No, show current", callback_data=f"show_welcome_{chat_id}")]
+    ])
+    await message.reply_text("⚙️ **Do you want to customize the welcome message?**\n\nSend your message with:\n`{user}` - user's name\n`{mention}` - mention link\n`{group}` - group ID\n\nExample: `Welcome {user}! Hela loves you.`", reply_markup=buttons)
+
+@app.on_message(filters.command("goodbye") & filters.group)
+async def goodbye_custom(client, message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    if not await is_group_or_bot_admin(client, message):
+        current = goodbye_msgs.get(chat_id)
+        if current:
+            await message.reply_text(f"📜 **Current goodbye message:**\n\n{current}\n\nUse format: `{{user}}` for name, `{{mention}}` for mention, `{{group}}` for group ID")
+        else:
+            example = random.choice(DEFAULT_GOODBYE).format(user="ExampleUser", mention="@user", group=chat_id)
+            await message.reply_text(f"📜 **Default goodbye message:**\n\n{example}\n\nAdmin can customize using `/goodbye` command.")
+        return
+    
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Yes, customize", callback_data=f"custom_goodbye_{chat_id}"),
+         InlineKeyboardButton("❌ No, show current", callback_data=f"show_goodbye_{chat_id}")]
+    ])
+    await message.reply_text("⚙️ **Do you want to customize the goodbye message?**\n\nSend your message with:\n`{user}` - user's name\n`{mention}` - mention link\n`{group}` - group ID\n\nExample: `Goodbye {user}! Hela will miss you.`", reply_markup=buttons)
 
 @app.on_message(filters.command("accept"))
 async def accept_cmd(client, message):
@@ -1438,6 +1539,38 @@ async def voice_cmd(client, message):
         await status_msg.edit_text("❌ **Gala kharab hai! Aawaz nahi nikal rahi.**")
         print(f"Voice Error: {e}")
 
+@app.on_callback_query(filters.regex(r"^(custom_welcome_|show_welcome_|custom_goodbye_|show_goodbye_)"))
+async def welcome_goodbye_callback(client, callback_query):
+    data = callback_query.data
+    admin_id = callback_query.from_user.id
+    chat_id = int(data.split("_")[-1])
+    
+    if data.startswith("custom_welcome_"):
+        pending_custom[admin_id] = {"type": "welcome", "chat_id": chat_id}
+        await callback_query.message.edit_text("✍️ **Please write your custom welcome message now.**\n\nUse:\n`{user}` - user's name\n`{mention}` - mention link\n`{group}` - group ID\n\nExample: `✨ {mention}, Asgard welcomes you!`")
+    
+    elif data.startswith("show_welcome_"):
+        current = welcome_msgs.get(chat_id)
+        if current:
+            await callback_query.message.edit_text(f"📜 **Current welcome message:**\n\n{current}")
+        else:
+            example = random.choice(DEFAULT_WELCOME).format(user="ExampleUser", mention="@user", group=chat_id)
+            await callback_query.message.edit_text(f"📜 **Default welcome message:**\n\n{example}")
+    
+    elif data.startswith("custom_goodbye_"):
+        pending_custom[admin_id] = {"type": "goodbye", "chat_id": chat_id}
+        await callback_query.message.edit_text("✍️ **Please write your custom goodbye message now.**\n\nUse:\n`{user}` - user's name\n`{mention}` - mention link\n`{group}` - group ID\n\nExample: `👋 {mention} left. Hela is watching.`")
+    
+    elif data.startswith("show_goodbye_"):
+        current = goodbye_msgs.get(chat_id)
+        if current:
+            await callback_query.message.edit_text(f"📜 **Current goodbye message:**\n\n{current}")
+        else:
+            example = random.choice(DEFAULT_GOODBYE).format(user="ExampleUser", mention="@user", group=chat_id)
+            await callback_query.message.edit_text(f"📜 **Default goodbye message:**\n\n{example}")
+    
+    await callback_query.answer()
+                    
 # --- RENDER PORT FIX ---
 import threading
 from flask import Flask
