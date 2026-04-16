@@ -32,6 +32,8 @@ economy = {}
 loans = {}
 active_guess = {"name": None, "chat_id": None}
 auto_guess_enabled = {}
+group_msg_storage = {}  # {user_id: {"content_type", "content_data", "caption"}}
+group_claim_cooldown = {}  # {chat_id: timestamp}
 # Welcome/Goodbye Messages Database (per group)
 welcome_msgs = {}   # {chat_id: "custom welcome text with {user} etc"}
 goodbye_msgs = {}   # {chat_id: "custom goodbye text"}
@@ -1141,12 +1143,19 @@ async def groups_list_cmd(client, message):
     else:
         group_msg_storage[message.from_user.id] = None
     
-    # Saare groups fetch karo jahaan bot hai
-    groups = []
-    async for dialog in client.get_dialogs():
-        if dialog.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-            groups.append(dialog.chat)
-    if not groups:
+    # Saare groups fetch karo with error handling
+    try:
+        groups = []
+        async for dialog in client.get_dialogs():
+            if dialog.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+                groups.append(dialog.chat)
+        if not groups:
+            return await message.reply_text("❌ Bot kisi group mein nahi hai! Bot ko pehle group mein add karo.")
+    except Exception as e:
+        return await message.reply_text(f"❌ Groups list laane mein error: {e}")
+    
+    # Buttons banane se pehle groups count check
+    if len(groups) == 0:
         return await message.reply_text("❌ Bot kisi group mein nahi hai!")
     
     buttons = []
@@ -1158,7 +1167,7 @@ async def groups_list_cmd(client, message):
     await message.reply_text(
         "📢 **Group select karo:**\n(Jo message reply kiya tha, wahi bheja jayega)",
         reply_markup=InlineKeyboardMarkup(buttons)
-    )
+            )
 
 @app.on_callback_query(filters.regex(r"^sendgroup_"))
 async def send_to_group_callback(client, callback_query):
@@ -1427,6 +1436,19 @@ async def master_text_listener(client, message):
             f"──────────────────\n"
             f"🎮 **{user_text.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai! ✨"
         )
+        raise StopPropagation
+        # Check for pending custom welcome/goodbye message
+    if uid in pending_custom:
+        pending = pending_custom.pop(uid)
+        msg_type = pending["type"]
+        chat_id = pending["chat_id"]
+        custom_text = message.text.strip()
+        if msg_type == "welcome":
+            welcome_msgs[chat_id] = custom_text
+            await message.reply_text("✅ Custom welcome message saved!")
+        elif msg_type == "goodbye":
+            goodbye_msgs[chat_id] = custom_text
+            await message.reply_text("✅ Custom goodbye message saved!")
         raise StopPropagation
     if active_guess.get("name") and chat_id == active_guess.get("chat_id"):
         correct_answer = active_guess["name"].lower()
