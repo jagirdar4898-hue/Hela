@@ -225,15 +225,29 @@ async def loan_cmd(client, message):
     loans[target.id] = {"from": message.from_user.id, "amt": amt}
     await message.reply_text(f"💸 {message.from_user.first_name} ne aapko **₹{amt}** ka loan offer kiya hai.\nType `/accept` to take it.")
 
-# Welcome new member
-@app.on_chat_member_updated()
-async def welcome_new_member(client, chat_member_updated):
-    # Only if user joins
-    if chat_member_updated.new_chat_member.status == "member" and chat_member_updated.old_chat_member.status in ("left", "kicked", "restricted"):
-        user = chat_member_updated.new_chat_member.user
-        chat_id = chat_member_updated.chat.id
+# Welcome via service message
+@app.on_message(filters.group & filters.service, group=2)
+async def welcome_service(client, message):
+    # Check for new members joining
+    if message.new_chat_members:
+        for user in message.new_chat_members:
+            # Ignore if bot itself joins
+            if user.id == client.me.id:
+                continue
+            mention = f"[{user.first_name}](tg://user?id={user.id})"
+            chat_id = message.chat.id
+            msg = get_welcome_msg(chat_id, user.first_name, mention)
+            await client.send_message(chat_id, msg, disable_web_page_preview=True)
+    
+    # Check for members leaving
+    if message.left_chat_member:
+        user = message.left_chat_member
+        # Ignore if bot leaves
+        if user.id == client.me.id:
+            return
         mention = f"[{user.first_name}](tg://user?id={user.id})"
-        msg = get_welcome_msg(chat_id, user.first_name, mention)
+        chat_id = message.chat.id
+        msg = get_goodbye_msg(chat_id, user.first_name, mention)
         await client.send_message(chat_id, msg, disable_web_page_preview=True)
 
 # Goodbye when member leaves
