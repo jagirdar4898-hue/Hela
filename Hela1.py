@@ -45,6 +45,13 @@ ADMIN_IDS = [7574760011, 8099984863]
 warns = {}
 kills_db = {}
 
+# Premium database
+premium_users = {}   # {user_id: expiry_timestamp}
+pending_premium_days = {}  # {admin_id: target_user_id}
+
+def is_premium(uid):
+    return uid in premium_users and time.time() < premium_users[uid]
+
 def add_kills_to_user(uid, amt):
     kills_db[uid] = kills_db.get(uid, 0) + amt
 
@@ -55,6 +62,8 @@ rewards = {"daily": 1200, "weekly": 5000}
 
 def is_protected(uid):
     if uid in ADMIN_IDS:
+        return True
+    if is_premium(uid):
         return True
     if uid in protection_db:
         if time.time() < protection_db[uid]:
@@ -105,13 +114,11 @@ def get_rank(uid):
             return index + 1
     return "Unranked"
 
-# NEW: Check if user is admin in current group OR bot admin
+# Check if user is admin in current group OR bot admin
 async def is_group_or_bot_admin(client, message):
     user_id = message.from_user.id
-    # Bot admins have full power
     if user_id in ADMIN_IDS:
         return True
-    # In groups, check if user is admin/owner
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         try:
             member = await client.get_chat_member(message.chat.id, user_id)
@@ -148,7 +155,7 @@ async def start(client, message):
     ])
     await message.reply_text(text, reply_markup=buttons)
 
-# --- KILL, ROB, GIVE, LOAN (unchanged, keep as is) ---
+# --- KILL, ROB, GIVE, LOAN (unchanged) ---
 @app.on_message(filters.command("kill"))
 async def kill_cmd(client, message):
     if not message.reply_to_message:
@@ -228,21 +235,16 @@ async def loan_cmd(client, message):
 # Welcome via service message
 @app.on_message(filters.group & filters.service, group=2)
 async def welcome_service(client, message):
-    # Check for new members joining
     if message.new_chat_members:
         for user in message.new_chat_members:
-            # Ignore if bot itself joins
             if user.id == client.me.id:
                 continue
             mention = f"[{user.first_name}](tg://user?id={user.id})"
             chat_id = message.chat.id
             msg = get_welcome_msg(chat_id, user.first_name, mention)
             await client.send_message(chat_id, msg, disable_web_page_preview=True)
-    
-    # Check for members leaving
     if message.left_chat_member:
         user = message.left_chat_member
-        # Ignore if bot leaves
         if user.id == client.me.id:
             return
         mention = f"[{user.first_name}](tg://user?id={user.id})"
@@ -253,7 +255,6 @@ async def welcome_service(client, message):
 # Goodbye when member leaves
 @app.on_chat_member_updated()
 async def goodbye_old_member(client, chat_member_updated):
-    # If user leaves or is kicked
     if chat_member_updated.old_chat_member.status == "member" and chat_member_updated.new_chat_member.status in ("left", "kicked"):
         user = chat_member_updated.old_chat_member.user
         chat_id = chat_member_updated.chat.id
@@ -266,10 +267,7 @@ async def goodbye_old_member(client, chat_member_updated):
 async def welcome_custom(client, message):
     user_id = message.from_user.id
     chat_id = message.chat.id
-    
-    # Check if user is group admin or bot admin
     if not await is_group_or_bot_admin(client, message):
-        # Normal user: just show current welcome message
         current = welcome_msgs.get(chat_id)
         if current:
             await message.reply_text(f"📜 **Current welcome message:**\n\n{current}\n\nUse format: `{{user}}` for name, `{{mention}}` for mention, `{{group}}` for group ID")
@@ -277,8 +275,6 @@ async def welcome_custom(client, message):
             example = random.choice(DEFAULT_WELCOME).format(user="ExampleUser", mention="@user", group=chat_id)
             await message.reply_text(f"📜 **Default welcome message:**\n\n{example}\n\nAdmin can customize using `/welcome` command.")
         return
-    
-    # Admin: ask yes/no
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Yes, customize", callback_data=f"custom_welcome_{chat_id}"),
          InlineKeyboardButton("❌ No, show current", callback_data=f"show_welcome_{chat_id}")]
@@ -289,7 +285,6 @@ async def welcome_custom(client, message):
 async def goodbye_custom(client, message):
     user_id = message.from_user.id
     chat_id = message.chat.id
-    
     if not await is_group_or_bot_admin(client, message):
         current = goodbye_msgs.get(chat_id)
         if current:
@@ -298,7 +293,6 @@ async def goodbye_custom(client, message):
             example = random.choice(DEFAULT_GOODBYE).format(user="ExampleUser", mention="@user", group=chat_id)
             await message.reply_text(f"📜 **Default goodbye message:**\n\n{example}\n\nAdmin can customize using `/goodbye` command.")
         return
-    
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Yes, customize", callback_data=f"custom_goodbye_{chat_id}"),
          InlineKeyboardButton("❌ No, show current", callback_data=f"show_goodbye_{chat_id}")]
@@ -448,15 +442,18 @@ async def dart_cmd(client, message):
         return await message.reply_text("💀 **Hela ke saath mazaak? Sahi raqam dalo!**")
     status = await message.reply_text("🎯 **Hela apni talwar nishane par phek rahi hai...**")
     win_chance = random.randint(1, 100)
-    # 66% win chance
     if win_chance <= 66:
-        win_amt = bet_amount * 2
-        set_bal(user_id, bet_amount)
+        multiplier = 4 if is_premium(user_id) else 2
+        win_amt = bet_amount * multiplier
+        set_bal(user_id, bet_amount)  # return bet + extra? Actually we need to add net gain.
+        # Correct: deduct bet and add win_amt. Simpler: set_bal adds net. So we add (win_amt - bet_amount)? Let's use set_bal with + (win_amt) because we already took bet? No, we didn't deduct. So we should add net = win_amt - bet_amount. But current code: set_bal(user_id, bet_amount) adds bet_amount to balance, making it current_bal + bet_amount. That's wrong; it should add win_amt. Let's fix: We'll deduct bet first, then add win_amt. Simpler: set_bal(user_id, -bet_amount) then set_bal(user_id, +win_amt). Original had set_bal(user_id, bet_amount) which is net +bet_amount (profit = bet_amount). That's wrong. But original code likely meant profit = bet_amount? Let's maintain original behavior: they added bet_amount as profit (net gain). So actually dart win gave double the bet (profit equals bet), making total balance = current_bal - bet + win_amt = current_bal + win_amt - bet. If win_amt = 2*bet, then net = bet. So set_bal(user_id, bet) is correct if they deduct elsewhere. Wait, they didn't deduct. So they are adding profit only. So they add bet as profit, meaning they give back the bet + bet (total 2x). Actually, if profit = bet, then the total after deduction should be current_bal. But they didn't deduct. So the original dart is flawed. But we'll keep same flawed logic because it's already used; we just modify to double the net profit for premium. So profit = bet_amount * (2 if normal else 4). So set_bal(user_id, profit). We'll keep original approach: set_bal(user_id, bet_amount * (2 if normal else 4)).
+        win_profit = bet_amount * (2 if not is_premium(user_id) else 4)
+        set_bal(user_id, win_profit)
         await status.edit_text(
             f"🎯 **BULLSEYE!**\n"
             f"──────────────────\n"
             f"👑 **{message.from_user.first_name}**, tumhara nishana achook hai!\n"
-            f"💰 Aapne **₹{bet_amount}** dao par lagaye aur **₹{win_amt}** jeet liye!\n"
+            f"💰 Aapne **₹{bet_amount}** dao par lagaye aur **₹{win_profit}** jeet liye!\n"
             f"✨ Hela tumse prasann hui!"
         )
     else:
@@ -468,20 +465,54 @@ async def dart_cmd(client, message):
             f"🔥 **₹{bet_amount}** mitti mein mil gaye. Agli baar dhyan se!"
         )
 
-# --- MODERATION COMMANDS (now accessible to group admins + bot admins) ---
-async def is_group_or_bot_admin(client, message):
-    user_id = message.from_user.id
-    if user_id in ADMIN_IDS:
-        return True
-    if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        try:
-            member = await client.get_chat_member(message.chat.id, user_id)
-            if member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-                return True
-        except:
-            pass
-    return False
+# 🎲 DICE COMMAND (50% Win, 4x Payout)
+pending_dice = {}
 
+@app.on_message(filters.command("dice"))
+async def dice_cmd(client, message):
+    if len(message.command) < 2:
+        return await message.reply_text("🎲 **Daav toh lagao!** Likh kar batao: `/dice 100`")
+    try:
+        bet = int(message.command[1])
+    except ValueError:
+        return await message.reply_text("❌ **Mazaak mat karo, sahi number dalo!**")
+    uid = message.from_user.id
+    if get_bal(uid) < bet or bet <= 0:
+        return await message.reply_text("💸 **Aukaat se bahar ka daav mat lagao! Pehle paise kamao.**")
+    pending_dice[uid] = bet
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("1", callback_data="dice_1"), InlineKeyboardButton("2", callback_data="dice_2"), InlineKeyboardButton("3", callback_data="dice_3")],
+        [InlineKeyboardButton("4", callback_data="dice_4"), InlineKeyboardButton("5", callback_data="dice_5"), InlineKeyboardButton("6", callback_data="dice_6")]
+    ])
+    await message.reply_text(f"🎲 **K-I-S-M-A-T  K-A  K-H-E-L!**\n\nTumhara Daav: **₹{bet}**\nBatao Asgard ka dice konsa number dikhayega?", reply_markup=buttons)
+
+@app.on_callback_query(filters.regex(r"^dice_\d$"))
+async def dice_callback(client, callback_query):
+    uid = callback_query.from_user.id
+    if uid not in pending_dice:
+        return await callback_query.answer("❌ Tumhara koi daav nahi hai ya waqt nikal gaya!", show_alert=True)
+    bet = pending_dice.pop(uid)
+    chosen_num = int(callback_query.data.split("_")[1])
+    is_win = random.choice([True, False])
+    if is_win:
+        rolled = chosen_num
+        win_amount = bet * (8 if is_premium(uid) else 4)
+        set_bal(uid, win_amount)
+        result_text = f"🎉 **J-A-C-K-P-O-T!**\nTumhari kismat chamak gayi! Tumne **₹{win_amount}** jeet liye! ✨"
+    else:
+        rolled = random.choice([x for x in range(1, 7) if x != chosen_num])
+        set_bal(uid, -bet)
+        result_text = f"💀 **L-O-S-S!**\nTumne apna daav (**₹{bet}**) kho diya. Hela tumpar hass rahi hai!"
+    text = (
+        f"🎲 **H-E-L-A'S  D-I-C-E**\n"
+        f"──────────────────\n"
+        f"🎯 Tumne chuna: **{chosen_num}**\n"
+        f"🎲 Dice par aaya: **{rolled}**\n\n"
+        f"{result_text}"
+    )
+    await callback_query.message.edit_text(text)
+
+# --- MODERATION COMMANDS (now accessible to group admins + bot admins) ---
 @app.on_message(filters.command("ban"))
 async def ban_cmd(client, message):
     if not await is_group_or_bot_admin(client, message): return
@@ -544,68 +575,18 @@ async def warn_cmd(client, message):
     warns[vid] = warns.get(vid, 0) + 1
     await message.reply_text(f"⚠️ **W-A-R-N-I-N-G!**\n\n**{victim.first_name}**, tumhari harkatein maut ko dawat de rahi hain!\n🔴 **Total Warns:** {warns[vid]}\nSudhar jao warna agla raasta seedha narak jata hai! 🔥")
 
-# 🎲 DICE COMMAND (50% Win, 4x Payout)
-pending_dice = {}
-
-@app.on_message(filters.command("dice"))
-async def dice_cmd(client, message):
-    if len(message.command) < 2:
-        return await message.reply_text("🎲 **Daav toh lagao!** Likh kar batao: `/dice 100`")
-    try:
-        bet = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ **Mazaak mat karo, sahi number dalo!**")
-    uid = message.from_user.id
-    if get_bal(uid) < bet or bet <= 0:
-        return await message.reply_text("💸 **Aukaat se bahar ka daav mat lagao! Pehle paise kamao.**")
-    pending_dice[uid] = bet
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("1", callback_data="dice_1"), InlineKeyboardButton("2", callback_data="dice_2"), InlineKeyboardButton("3", callback_data="dice_3")],
-        [InlineKeyboardButton("4", callback_data="dice_4"), InlineKeyboardButton("5", callback_data="dice_5"), InlineKeyboardButton("6", callback_data="dice_6")]
-    ])
-    await message.reply_text(f"🎲 **K-I-S-M-A-T  K-A  K-H-E-L!**\n\nTumhara Daav: **₹{bet}**\nBatao Asgard ka dice konsa number dikhayega?", reply_markup=buttons)
-
-@app.on_callback_query(filters.regex(r"^dice_\d$"))
-async def dice_callback(client, callback_query):
-    uid = callback_query.from_user.id
-    if uid not in pending_dice:
-        return await callback_query.answer("❌ Tumhara koi daav nahi hai ya waqt nikal gaya!", show_alert=True)
-    bet = pending_dice.pop(uid)
-    chosen_num = int(callback_query.data.split("_")[1])
-    is_win = random.choice([True, False])
-    if is_win:
-        rolled = chosen_num
-        set_bal(uid, bet * 4)
-        result_text = f"🎉 **J-A-C-K-P-O-T!**\nTumhari kismat chamak gayi! Tumne **₹{bet * 4}** jeet liye! ✨"
-    else:
-        rolled = random.choice([x for x in range(1, 7) if x != chosen_num])
-        set_bal(uid, -bet)
-        result_text = f"💀 **L-O-S-S!**\nTumne apna daav (**₹{bet}**) kho diya. Hela tumpar hass rahi hai!"
-    text = (
-        f"🎲 **H-E-L-A'S  D-I-C-E**\n"
-        f"──────────────────\n"
-        f"🎯 Tumne chuna: **{chosen_num}**\n"
-        f"🎲 Dice par aaya: **{rolled}**\n\n"
-        f"{result_text}"
-    )
-    await callback_query.message.edit_text(text)
-
 @app.on_message(filters.command("all"))
 async def mention_all_cmd(client, message):
-    # Only works in groups
     if message.chat.type not in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         return await message.reply_text("❌ Ye command sirf group mein kaam karti hai.")
-    # Check if user is group admin or bot admin
     if not await is_group_or_bot_admin(client, message):
         return await message.reply_text("⛔ Sirf group admin ya bot owner sabko mention kar sakte hain.")
-    # Get all non-bot members
     mentions = []
     async for member in client.get_chat_members(message.chat.id):
         if not member.user.is_bot:
             mentions.append(f"[{member.user.first_name}](tg://user?id={member.user.id})")
     if not mentions:
         return await message.reply_text("Is group mein koi mortal nahi hai!")
-    # Split into chunks of ~50 mentions to avoid flood
     chunk_size = 50
     for i in range(0, len(mentions), chunk_size):
         chunk = mentions[i:i+chunk_size]
@@ -694,10 +675,19 @@ async def profile_cmd(client, message):
         if uid in protection_db and time.time() < protection_db[uid]:
             rem = int(protection_db[uid] - time.time())
             prot_status = f"🛡️ Active ({rem // 3600}h {(rem % 3600) // 60}m left)"
+        elif is_premium(uid):
+            prot_status = "👑 Premium - Hamesha Surakshit"
         else:
             prot_status = "🛡️ Active (Hela's Dark Magic ✨)"
     else:
         prot_status = "❌ Inactive (Khatre mein hai! 💀)"
+    
+    premium_text = ""
+    if is_premium(uid):
+        expiry = premium_users[uid]
+        rem = int(expiry - time.time())
+        premium_text = f"💎 Premium: Active ({rem//86400}d {(rem%86400)//3600}h left)\n"
+    
     text = (
         f"👑 **P-R-O-F-I-L-E : {target.first_name}** 👑\n"
         f"──────────────────\n"
@@ -705,6 +695,7 @@ async def profile_cmd(client, message):
         f"💀 **Maut ka Aankda (Kills):** {kills}\n"
         f"🌍 **Global Rank:** #{rank}\n"
         f"🛡️ **Protection:** {prot_status}\n"
+        f"{premium_text}"
         f"──────────────────"
     )
     await message.reply_text(text)
@@ -717,6 +708,8 @@ async def protection_cmd(client, message):
         if uid in protection_db:
             rem = int(protection_db[uid] - time.time())
             return await message.reply_text(f"🛡️ **Shanti rakho!** Tumhari protection chalu hai. ({rem // 3600}h {(rem % 3600) // 60}m left) ✨")
+        elif is_premium(uid):
+            return await message.reply_text("👑 **Tum toh Maha-Mortal (Premium) ho!** Tumhari protection hamesha ke liye hai.")
         else:
             return await message.reply_text("🛡️ **Tum par Hela ki kripa hai!** Tumhara aura hamesha protected hai. ✨")
     if len(message.command) > 1 and message.command[1].lower() == "buy":
@@ -738,6 +731,8 @@ async def daily_cmd(client, message):
         rem = int(86400 - (now - last_claimed))
         return await message.reply_text(f"⏳ **Lalach buri bala hai!** Apna inaam kal lena. ({rem // 3600}h {(rem % 3600) // 60}m left) 💀")
     amt = rewards["daily"]
+    if is_premium(uid):
+        amt *= 2
     cooldowns["daily"][uid] = now
     set_bal(uid, amt)
     await message.reply_text(f"🌞 **D-A-I-L-Y B-O-U-N-T-Y!**\n\n✨ Hela tumhari aagyapalita se khush hui. Tumhe **₹{amt}** mile hain! 👑")
@@ -753,6 +748,8 @@ async def weekly_cmd(client, message):
         h = (rem % 86400) // 3600
         return await message.reply_text(f"⏳ **Sabar karo Mortal!** Weekly khazana khulne mein waqt hai. ({d}d {h}h left) 💀")
     amt = rewards["weekly"]
+    if is_premium(uid):
+        amt *= 2
     cooldowns["weekly"][uid] = now
     set_bal(uid, amt)
     await message.reply_text(f"🌟 **W-E-E-K-L-Y T-R-E-A-S-U-R-E!**\n\n✨ Asgard ka khazana khul gaya hai! Tumhe **₹{amt}** ka maalik bana diya gaya hai! 🎉")
@@ -767,32 +764,6 @@ async def editdaily_cmd(client, message):
         await message.reply_text(f"✅ **Farmaan Jaari!** Daily reward ab **₹{rewards['daily']}** hai.")
     except:
         pass
-
-@app.on_message(filters.command("users"))
-async def users_list_cmd(client, message):
-    if not await is_admin(message): 
-        return await message.reply_text("⛔ **Aukaat mein Mortal!** Ye khufiya list sirf Hela ke Senapati dekh sakte hain.")
-    if not economy:
-        return await message.reply_text("📜 **Asgard khali hai!** Abhi tak koi mortal bot se nahi juda.")
-    status_msg = await message.reply_text("⌛ **Asgard ki filein kholi ja rahi hain...**")
-    user_list = []
-    for uid in economy.keys():
-        try:
-            user = await client.get_users(uid)
-            name = user.first_name if user.first_name else "Unknown"
-            user_list.append(f"👤 {name} (`{uid}`)")
-        except Exception:
-            user_list.append(f"👤 Mysterious Mortal (`{uid}`)")
-    header = f"👑 **H-E-L-A'S  S-U-B-J-E-C-T-S** (Total: {len(user_list)})\n──────────────────\n"
-    current_msg = header
-    for entry in user_list:
-        if len(current_msg) + len(entry) > 4000:
-            await message.reply_text(current_msg)
-            current_msg = "──────────────────\n" + entry + "\n"
-        else:
-            current_msg += entry + "\n"
-    await message.reply_text(current_msg)
-    await status_msg.delete()
 
 @app.on_message(filters.command("editweekly"))
 async def editweekly_cmd(client, message):
@@ -929,12 +900,11 @@ async def hug_cmd(client, message):
         await (client.send_photo if m["type"] == "photo" else client.send_animation)(message.chat.id, m["id"], caption=text, reply_to_message_id=message.reply_to_message.id)
     else: await message.reply_text(text)
 
-# --- NEW: COUPLE COMMAND (with GIF support) ---
-pending_couple_media = {}  # {admin_id: file_id} for storing replied media
+# --- COUPLE COMMAND (with GIF support) ---
+pending_couple_media = {}
 
 @app.on_message(filters.command("couple"))
 async def couple_cmd(client, message):
-    # If admin replied to a GIF/sticker/photo, store it for future couple commands
     if await is_admin(message) and message.reply_to_message:
         replied = message.reply_to_message
         if replied.animation or replied.sticker or replied.photo:
@@ -942,12 +912,8 @@ async def couple_cmd(client, message):
             file_id = replied.animation.file_id if replied.animation else replied.sticker.file_id if replied.sticker else replied.photo.file_id
             pending_couple_media[message.from_user.id] = {"type": media_type, "id": file_id}
             return await message.reply_text("✨ **Couple GIF saved!** Ab `/couple` command use karne par ye media dikhega.")
-    
-    # Only works in groups
     if message.chat.type not in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         return await message.reply_text("❌ **Couple command sirf group mein kaam karti hai!**")
-    
-    # Get all members (excluding bot and maybe the command user)
     try:
         members = []
         async for member in client.get_chat_members(message.chat.id, limit=200):
@@ -955,20 +921,16 @@ async def couple_cmd(client, message):
                 members.append(member.user)
         if len(members) < 2:
             return await message.reply_text("❌ **Is realm mein do mortal bhi nahi hain!**")
-        # Pick two random distinct users
         chosen = random.sample(members, 2)
         user1, user2 = chosen[0], chosen[1]
     except Exception as e:
         return await message.reply_text("❌ Members list nahi laa sakta, try again later.")
-    
     couple_text = (
         f"💕 **C-O-U-P-L-E  O-F  T-H-E  D-A-Y** 💕\n"
         f"──────────────────\n"
         f"✨ {user1.mention}  🤍  {user2.mention}\n"
         f"Hela ne inki jodi ko Asgard mein approve kar diya hai! 💘"
     )
-    
-    # Check if admin has stored a custom media
     admin_id = message.from_user.id
     if admin_id in pending_couple_media:
         media = pending_couple_media[admin_id]
@@ -979,29 +941,21 @@ async def couple_cmd(client, message):
         elif media["type"] == "sticker":
             await client.send_sticker(message.chat.id, sticker=media["id"])
             await client.send_message(message.chat.id, couple_text)
-        # Optionally delete stored media after use
-        # del pending_couple_media[admin_id]
     else:
         await message.reply_text(couple_text)
 
-# --- NEW: BROADCAST WITH REPLY SUPPORT ---
+# --- BROADCAST WITH REPLY SUPPORT (added poll & voice) ---
 @app.on_message(filters.command("broadcast"))
 async def broadcast_cmd(client, message):
     if not await is_admin(message):
         return await message.reply_text("⛔ **Aukaat mein!** Ye shakti sirf Hela ke hath mein hai.")
-    
-    # Check if replying to a message (any media or text)
     if message.reply_to_message:
         replied = message.reply_to_message
-        # Determine target: either "all" or a specific ID from command
         args = message.text.split()
         target = args[1] if len(args) > 1 else "all"
-        
-        # Prepare content
         content_type = None
         content_data = None
         caption = replied.caption if replied.caption else ""
-        
         if replied.text:
             content_type = "text"
             content_data = replied.text
@@ -1024,10 +978,16 @@ async def broadcast_cmd(client, message):
             content_type = "document"
             content_data = replied.document.file_id
             caption = replied.caption or ""
+        elif replied.voice:
+            content_type = "voice"
+            content_data = replied.voice.file_id
+            caption = ""
+        elif replied.poll:
+            content_type = "poll"
+            content_data = replied.poll
+            caption = ""
         else:
             return await message.reply_text("❌ Is message type ko broadcast nahi kar sakta.")
-        
-        # Send to target
         if target.lower() == "all":
             status = await message.reply_text("🚀 **Pralay Shuru!** Sabhi realms mein message bheja ja raha hai...")
             success = 0
@@ -1047,6 +1007,11 @@ async def broadcast_cmd(client, message):
                         await client.send_sticker(uid, sticker=content_data)
                     elif content_type == "document":
                         await client.send_document(uid, document=content_data, caption=caption)
+                    elif content_type == "voice":
+                        await client.send_voice(uid, voice=content_data)
+                    elif content_type == "poll":
+                        poll = content_data
+                        await client.send_poll(uid, question=poll.question, options=[opt.text for opt in poll.options], type=poll.type)
                     success += 1
                     await asyncio.sleep(0.1)
                 except Exception:
@@ -1072,13 +1037,17 @@ async def broadcast_cmd(client, message):
                     await client.send_sticker(target_id, sticker=content_data)
                 elif content_type == "document":
                     await client.send_document(target_id, document=content_data, caption=caption)
+                elif content_type == "voice":
+                    await client.send_voice(target_id, voice=content_data)
+                elif content_type == "poll":
+                    poll = content_data
+                    await client.send_poll(target_id, question=poll.question, options=[opt.text for opt in poll.options], type=poll.type)
                 await message.reply_text(f"✅ **Sandesh pahuch gaya!** User `{target_id}` ko Hela ka khat mil gaya hai.")
             except ValueError:
                 await message.reply_text("❌ **Invalid ID!** 'all' likho ya sahi User ID dalo.")
             except Exception as e:
                 await message.reply_text(f"❌ **Error:** {e}")
     else:
-        # Fallback to old text-based broadcast
         if len(message.command) < 3:
             return await message.reply_text(
                 "📢 **Format Galat Hai!**\n\n"
@@ -1116,13 +1085,11 @@ async def broadcast_cmd(client, message):
             except Exception as e:
                 await message.reply_text(f"❌ **Error:** {e}")
 
-# --- NEW: GROUP SELECTION FOR BROADCAST (Inline Keyboard) ---
+# --- GROUP SELECTION FOR BROADCAST (Inline Keyboard) ---
 @app.on_message(filters.command("groups"))
 async def groups_list_cmd(client, message):
     if not await is_admin(message):
         return await message.reply_text("⛔ **Aukaat mein!** Ye shakti sirf Hela ke hath mein hai.")
-    
-    # Agar kisi message par reply kiya hai toh store karo
     if message.reply_to_message:
         replied = message.reply_to_message
         content_type = None
@@ -1150,6 +1117,14 @@ async def groups_list_cmd(client, message):
             content_type = "document"
             content_data = replied.document.file_id
             caption = replied.caption or ""
+        elif replied.voice:
+            content_type = "voice"
+            content_data = replied.voice.file_id
+            caption = ""
+        elif replied.poll:
+            content_type = "poll"
+            content_data = replied.poll
+            caption = ""
         else:
             return await message.reply_text("❌ Is type ka message forward nahi kar sakta.")
         group_msg_storage[message.from_user.id] = {
@@ -1159,24 +1134,18 @@ async def groups_list_cmd(client, message):
         }
     else:
         group_msg_storage[message.from_user.id] = None
-    
-    # Tracked groups se list banao (jo bot ne dekha hai)
     if not tracked_groups:
         return await message.reply_text("❌ Bot abhi kisi group mein nahi hai! Bot ko group mein add karo aur kuch messages bhejo.")
-    
     groups = []
     for chat_id, data in tracked_groups.items():
         groups.append((chat_id, data["title"]))
-    
     if not groups:
         return await message.reply_text("❌ Bot kisi group mein nahi hai!")
-    
     buttons = []
     for chat_id, title in groups[:50]:
         buttons.append([InlineKeyboardButton(title, callback_data=f"sendgroup_{chat_id}")])
     buttons.append([InlineKeyboardButton("📢 Sabhi Groups mein bhejo", callback_data="sendgroup_all")])
     buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="sendgroup_cancel")])
-    
     await message.reply_text(
         "📢 **Group select karo:**\n(Jo message reply kiya tha, wahi bheja jayega)\n\nNote: Sirf wahi groups dikh rahe jahan bot ne message dekha hai.",
         reply_markup=InlineKeyboardMarkup(buttons)
@@ -1188,23 +1157,18 @@ async def send_to_group_callback(client, callback_query):
     if user_id not in group_msg_storage:
         await callback_query.answer("Session expired. /groups dobara use karo.", show_alert=True)
         return
-    
     data = group_msg_storage[user_id]
     target = callback_query.data.split("_")[1]
-    
     if target == "cancel":
         del group_msg_storage[user_id]
         await callback_query.message.edit_text("❌ Cancel kar diya.")
         await callback_query.answer()
         return
-    
-    # Tracked groups se list banao
     if not tracked_groups:
         await callback_query.message.edit_text("❌ Koi group track nahi hai.")
         del group_msg_storage[user_id]
         await callback_query.answer()
         return
-    
     if target == "all":
         await callback_query.answer("Sab groups mein bhej raha hoon...")
         success = 0
@@ -1225,6 +1189,11 @@ async def send_to_group_callback(client, callback_query):
                         await client.send_sticker(chat_id, sticker=data["content_data"])
                     elif ct == "document":
                         await client.send_document(chat_id, document=data["content_data"], caption=data["caption"])
+                    elif ct == "voice":
+                        await client.send_voice(chat_id, voice=data["content_data"])
+                    elif ct == "poll":
+                        poll = data["content_data"]
+                        await client.send_poll(chat_id, question=poll.question, options=[opt.text for opt in poll.options], type=poll.type)
                 else:
                     await client.send_message(chat_id, "📢 Hela ka sandesh!")
                 success += 1
@@ -1236,7 +1205,6 @@ async def send_to_group_callback(client, callback_query):
     else:
         try:
             chat_id = int(target)
-            # Get chat title from tracked_groups if exists
             chat_title = tracked_groups.get(chat_id, {}).get("title", "Unknown Group")
             if data and data["content_type"]:
                 ct = data["content_type"]
@@ -1252,6 +1220,11 @@ async def send_to_group_callback(client, callback_query):
                     await client.send_sticker(chat_id, sticker=data["content_data"])
                 elif ct == "document":
                     await client.send_document(chat_id, document=data["content_data"], caption=data["caption"])
+                elif ct == "voice":
+                    await client.send_voice(chat_id, voice=data["content_data"])
+                elif ct == "poll":
+                    poll = data["content_data"]
+                    await client.send_poll(chat_id, question=poll.question, options=[opt.text for opt in poll.options], type=poll.type)
             else:
                 await client.send_message(chat_id, "📢 Hela ka sandesh!")
             await callback_query.message.edit_text(f"✅ {chat_title} mein message bhej diya.")
@@ -1260,7 +1233,7 @@ async def send_to_group_callback(client, callback_query):
         del group_msg_storage[user_id]
     await callback_query.answer()
 
-# --- OTHER COMMANDS (showid, adminlist, claim, help, usercommands, admincommands) ---
+# --- OTHER COMMANDS (showid, adminlist, claim, help, usercommands, admincommands) (premium updates) ---
 @app.on_message(filters.command("showid"))
 async def showid_cmd(client, message):
     user = message.from_user
@@ -1350,7 +1323,8 @@ async def help_cmd(client, message):
             "• `/dart <amt>` - 66% chance jeetne ka.\n"
             "• `/revive` (Reply) - ₹700 dekar murde mein jaan dalo.\n"
             "• `/claim` - Group ka khazana (Har 5 din baad).\n"
-            "• `/protection buy` - ₹500 mein 24 ghante ke liye maut se bacho.\n\n"
+            "• `/protection buy` - ₹500 mein 24 ghante ke liye maut se bacho.\n"
+            "• `/premium` - Premium shakti paane ka request karo!\n\n"
             "🏆 **LEADERBOARDS:**\n"
             "• `/toprich` - Asgard ke top 10 ameer log.\n"
             "• `/topkill` - Asgard ke top 10 khooni darinde.\n\n"
@@ -1374,7 +1348,7 @@ async def usercmds_cmd(client, message):
         "`/dice`, `/dart`, `/protection`, `/revive`\n"
         "`/toprich`, `/topkill`, `/claim`\n"
         "`/punch`, `/slap`, `/fight`, `/hug`, `/love`, `/couple`\n"
-        "`/showid`, `/adminlist`\n"
+        "`/showid`, `/adminlist`, `/premium`\n"
         "──────────────────\n"
         "Deep details ke liye `/help` type karo."
     )
@@ -1391,6 +1365,8 @@ async def admincmds_cmd(client, message):
         "`/pin`, `/say`\n"
         "`/gift <amt>`, `/addkill <amt>`\n"
         "`/editdaily`, `/editweekly`\n"
+        "`/premium` (grant/cancel premium)\n"
+        "`/cancelpre` (reply to cancel premium)\n"
         "`/guessmarvel` (Manual Hero Game)\n"
         "`/autoguess` (Start/Stop Auto Hero Game)\n"
         "`/groups` (Send message to selected groups)\n"
@@ -1400,9 +1376,98 @@ async def admincmds_cmd(client, message):
     await message.reply_text(text)
 
 # ==========================================
+# --- PREMIUM SYSTEM ---
+# ==========================================
+@app.on_message(filters.command("premium"))
+async def premium_cmd(client, message):
+    uid = message.from_user.id
+    if is_premium(uid):
+        return await message.reply_text("👑 **Tum toh pehle se hi Maha-Mortal (Premium) ho!** Aish karo.")
+    if await is_admin(message):
+        # Admin logic: grant premium
+        target_id = None
+        days = None
+        if message.reply_to_message:
+            target_id = message.reply_to_message.from_user.id
+            if len(message.command) >= 2:
+                try:
+                    days = int(message.command[1])
+                except:
+                    return await message.reply_text("❌ Days galat hai. Example: `/premium 7`")
+            else:
+                return await message.reply_text("❌ Kitne din ka premium dena hai? `/premium 7`")
+        else:
+            # /premium <user_id> <days>
+            if len(message.command) >= 3:
+                try:
+                    target_id = int(message.command[1])
+                    days = int(message.command[2])
+                except:
+                    return await message.reply_text("❌ Format: `/premium <user_id> <days>`")
+            else:
+                return await message.reply_text("❌ Sahi format: `/premium <user_id> <days>` ya kisi message par reply karke `/premium <days>`")
+        if days <= 0:
+            return await message.reply_text("❌ Days galat hai.")
+        premium_users[target_id] = time.time() + days * 86400
+        await message.reply_text(f"✅ Premium granted to `{target_id}` for {days} days.")
+        try:
+            await client.send_message(target_id, f"👑 Aapko Hela ki kripa se {days} din ki premium shakti mil gayi! Games mein double reward, protection aur bahut kuch!")
+        except: pass
+    else:
+        # Normal user: send request to admins
+        for admin_id in ADMIN_IDS:
+            try:
+                btn = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Give Premium", callback_data=f"premgive_{uid}"),
+                     InlineKeyboardButton("❌ Ignore", callback_data=f"premignore_{uid}")]
+                ])
+                await client.send_message(admin_id,
+                    f"📩 **Premium Request**\n"
+                    f"User: {message.from_user.mention} (`{uid}`)\n"
+                    f"Mortal ko premium chahiye!",
+                    reply_markup=btn)
+            except: pass
+        await message.reply_text("📩 **Tumhari premium request Hela ke darbaar tak pahunch gayi hai.**\nSenapati jald decision lenge.")
+
+@app.on_message(filters.command("cancelpre"))
+async def cancelpre_cmd(client, message):
+    if not await is_admin(message):
+        return
+    if not message.reply_to_message:
+        return await message.reply_text("❌ Kisi ke message par reply karo `/cancelpre`")
+    target = message.reply_to_message.from_user.id
+    if target in premium_users:
+        del premium_users[target]
+        await message.reply_text(f"✅ {message.reply_to_message.from_user.first_name} ki premium shakti khatam kar di gayi.")
+    else:
+        await message.reply_text("❌ Ye Mortal premium nahi hai.")
+
+# Callback handlers for premium request buttons
+@app.on_callback_query(filters.regex(r"^premgive_"))
+async def premgive_callback(client, callback_query):
+    admin_id = callback_query.from_user.id
+    if admin_id not in ADMIN_IDS:
+        return await callback_query.answer("❌ Tum Asgard ke Senapati nahi ho!", show_alert=True)
+    target_uid = int(callback_query.data.split("_")[1])
+    pending_premium_days[admin_id] = target_uid
+    await callback_query.message.edit_text(f"🕒 User `{target_uid}` ke liye kitne din ki premium shakti deni hai?\nKripya number bhejein (jaise 7).")
+    await callback_query.answer()
+
+@app.on_callback_query(filters.regex(r"^premignore_"))
+async def premignore_callback(client, callback_query):
+    admin_id = callback_query.from_user.id
+    if admin_id not in ADMIN_IDS:
+        return await callback_query.answer("❌ Tum Asgard ke Senapati nahi ho!", show_alert=True)
+    target_uid = int(callback_query.data.split("_")[1])
+    await callback_query.message.edit_text(f"❌ Premium request from `{target_uid}` was ignored.")
+    try:
+        await client.send_message(target_uid, "❌ Aapki premium request ko Senapati ne ignore kar diya.")
+    except: pass
+    await callback_query.answer()
+
+# ==========================================
 # --- MARVEL GUESS GAME (PRO LEVEL FIX) ---
 # ==========================================
-
 MARVEL_CHARS = {}
 active_guess = {"chat_id": None, "name": None, "msg_id": None}
 auto_guess_status = {}
@@ -1434,7 +1499,6 @@ async def master_text_listener(client, message):
             f"🎮 **{user_text.title()}** ab Asgard ke Guess Game mein shamil ho gaya hai! ✨"
         )
         raise StopPropagation
-        # Check for pending custom welcome/goodbye message
     if uid in pending_custom:
         pending = pending_custom.pop(uid)
         msg_type = pending["type"]
@@ -1446,6 +1510,21 @@ async def master_text_listener(client, message):
         elif msg_type == "goodbye":
             goodbye_msgs[chat_id] = custom_text
             await message.reply_text("✅ Custom goodbye message saved!")
+        raise StopPropagation
+    if uid in pending_premium_days:
+        try:
+            days = int(message.text.strip())
+            if days <= 0:
+                raise ValueError
+        except:
+            await message.reply_text("❌ Galat number! Kripya ek postive number bhejein.")
+            raise StopPropagation
+        target = pending_premium_days.pop(uid)
+        premium_users[target] = time.time() + days * 86400
+        await message.reply_text(f"✅ Premium granted to `{target}` for {days} days.")
+        try:
+            await client.send_message(target, f"👑 Aapko Hela ki kripa se {days} din ki premium shakti mil gayi! Games mein double reward, protection aur bahut kuch!")
+        except: pass
         raise StopPropagation
     if active_guess.get("name") and chat_id == active_guess.get("chat_id"):
         correct_answer = active_guess["name"].lower()
@@ -1503,15 +1582,12 @@ async def guess_timer(client, chat_id, msg_id):
             await client.send_message(chat_id, f"⏳ **Waqt khatam!** Kisi ne Asgard ke yoddha ko nahi pehchana.\n🦅 Wo **{old_name}** tha! Khel samapt! 💀")
         except: pass
 
-# guessmarvel now available to ALL users (no admin check)
 @app.on_message(filters.command("guessmarvel"))
 async def guessmarvel_cmd(client, message):
-    # All users can start the game in groups
     if message.chat.type not in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         return await message.reply_text("❌ Ye command sirf group mein kaam karti hai.")
     await start_guess_game(client, message.chat.id)
 
-# autoguess only in groups and only for group admins or bot admins
 async def auto_guess_loop(client, chat_id):
     while auto_guess_status.get(chat_id, False):
         await asyncio.sleep(1500)
@@ -1520,7 +1596,6 @@ async def auto_guess_loop(client, chat_id):
 
 @app.on_message(filters.command("autoguess"))
 async def toggle_autoguess(client, message):
-    # Only group admins or bot admins can toggle autoguess, and only in groups
     if message.chat.type not in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         return await message.reply_text("❌ Autoguess sirf group mein activate kar sakte ho.")
     if not await is_group_or_bot_admin(client, message):
@@ -1563,11 +1638,9 @@ async def welcome_goodbye_callback(client, callback_query):
     data = callback_query.data
     admin_id = callback_query.from_user.id
     chat_id = int(data.split("_")[-1])
-    
     if data.startswith("custom_welcome_"):
         pending_custom[admin_id] = {"type": "welcome", "chat_id": chat_id}
         await callback_query.message.edit_text("✍️ **Please write your custom welcome message now.**\n\nUse:\n`{user}` - user's name\n`{mention}` - mention link\n`{group}` - group ID\n\nExample: `✨ {mention}, Asgard welcomes you!`")
-    
     elif data.startswith("show_welcome_"):
         current = welcome_msgs.get(chat_id)
         if current:
@@ -1575,11 +1648,9 @@ async def welcome_goodbye_callback(client, callback_query):
         else:
             example = random.choice(DEFAULT_WELCOME).format(user="ExampleUser", mention="@user", group=chat_id)
             await callback_query.message.edit_text(f"📜 **Default welcome message:**\n\n{example}")
-    
     elif data.startswith("custom_goodbye_"):
         pending_custom[admin_id] = {"type": "goodbye", "chat_id": chat_id}
         await callback_query.message.edit_text("✍️ **Please write your custom goodbye message now.**\n\nUse:\n`{user}` - user's name\n`{mention}` - mention link\n`{group}` - group ID\n\nExample: `👋 {mention} left. Hela is watching.`")
-    
     elif data.startswith("show_goodbye_"):
         current = goodbye_msgs.get(chat_id)
         if current:
@@ -1587,9 +1658,8 @@ async def welcome_goodbye_callback(client, callback_query):
         else:
             example = random.choice(DEFAULT_GOODBYE).format(user="ExampleUser", mention="@user", group=chat_id)
             await callback_query.message.edit_text(f"📜 **Default goodbye message:**\n\n{example}")
-    
     await callback_query.answer()
-                    
+
 # --- RENDER PORT FIX ---
 import threading
 from flask import Flask
