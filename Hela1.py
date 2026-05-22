@@ -447,8 +447,9 @@ async def dart_cmd(client, message):
         win_amt = bet_amount * multiplier
         set_bal(user_id, bet_amount)  # return bet + extra? Actually we need to add net gain.
         # Correct: deduct bet and add win_amt. Simpler: set_bal adds net. So we add (win_amt - bet_amount)? Let's use set_bal with + (win_amt) because we already took bet? No, we didn't deduct. So we should add net = win_amt - bet_amount. But current code: set_bal(user_id, bet_amount) adds bet_amount to balance, making it current_bal + bet_amount. That's wrong; it should add win_amt. Let's fix: We'll deduct bet first, then add win_amt. Simpler: set_bal(user_id, -bet_amount) then set_bal(user_id, +win_amt). Original had set_bal(user_id, bet_amount) which is net +bet_amount (profit = bet_amount). That's wrong. But original code likely meant profit = bet_amount? Let's maintain original behavior: they added bet_amount as profit (net gain). So actually dart win gave double the bet (profit equals bet), making total balance = current_bal - bet + win_amt = current_bal + win_amt - bet. If win_amt = 2*bet, then net = bet. So set_bal(user_id, bet) is correct if they deduct elsewhere. Wait, they didn't deduct. So they are adding profit only. So they add bet as profit, meaning they give back the bet + bet (total 2x). Actually, if profit = bet, then the total after deduction should be current_bal. But they didn't deduct. So the original dart is flawed. But we'll keep same flawed logic because it's already used; we just modify to double the net profit for premium. So profit = bet_amount * (2 if normal else 4). So set_bal(user_id, profit). We'll keep original approach: set_bal(user_id, bet_amount * (2 if normal else 4)).
-        win_profit = bet_amount * (2 if not is_premium(user_id) else 4)
-        set_bal(user_id, win_profit)
+        set_bal(user_id, -bet_amount)                      # पहले दांव काटो
+        total_win = bet_amount * (2 if not is_premium(user_id) else 4)
+        set_bal(user_id, total_win)                        # फिर पूरी जीत दो
         await status.edit_text(
             f"🎯 **BULLSEYE!**\n"
             f"──────────────────\n"
@@ -496,8 +497,9 @@ async def dice_callback(client, callback_query):
     is_win = random.choice([True, False])
     if is_win:
         rolled = chosen_num
+        set_bal(uid, -bet)                                 # पहले दांव काटो
         win_amount = bet * (8 if is_premium(uid) else 4)
-        set_bal(uid, win_amount)
+        set_bal(uid, win_amount)                           # पूरी जीत दो
         result_text = f"🎉 **J-A-C-K-P-O-T!**\nTumhari kismat chamak gayi! Tumne **₹{win_amount}** jeet liye! ✨"
     else:
         rolled = random.choice([x for x in range(1, 7) if x != chosen_num])
@@ -1487,6 +1489,10 @@ async def add_marvel_cmd(client, message):
 @app.on_message(filters.text, group=1)
 async def master_text_listener(client, message):
     if not message.from_user: return
+    # ✅ यह नई line डालो:
+    if message.text.startswith('/'):
+        return
+    # ... बाकी पुराना कोड जैसे का तैसा रहेगा ...
     uid = message.from_user.id
     chat_id = message.chat.id
     user_text = message.text.strip().lower()
