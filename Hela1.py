@@ -182,11 +182,13 @@ async def kill_cmd(client, message):
         f"✨ Aae aise hi aghe badho "
     )
 
-@app.on_message(filters.group & filters.incoming)
+@app.on_message(filters.group & filters.incoming, group=5)   # ← group=3 डालना न भूलें
 async def track_groups(client, message):
     chat_id = message.chat.id
+    # ✅ सुरक्षित title (अगर कोई group title न हो तो "Unknown Group" लिखे)
+    title = message.chat.title or "Unknown Group"
     if chat_id not in tracked_groups:
-        tracked_groups[chat_id] = {"title": message.chat.title, "added_at": time.time()}
+        tracked_groups[chat_id] = {"title": title, "added_at": time.time()}
 
 @app.on_message(filters.command("rob"))
 async def rob_cmd(client, message):
