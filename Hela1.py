@@ -30,7 +30,7 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 # Databases
 economy = {}
 loans = {}
-active_guess = {"name": None, "chat_id": None}
+#active_guess = {"name": None, "chat_id": None}
 auto_guess_enabled = {}
 tracked_groups = {}  # {chat_id: {"title": str, "added_at": timestamp}}
 group_msg_storage = {}  # {user_id: {"content_type", "content_data", "caption"}}
@@ -454,7 +454,7 @@ async def dart_cmd(client, message):
             f"🎯 **BULLSEYE!**\n"
             f"──────────────────\n"
             f"👑 **{message.from_user.first_name}**, tumhara nishana achook hai!\n"
-            f"💰 Aapne **₹{bet_amount}** dao par lagaye aur **₹{win_profit}** jeet liye!\n"
+            f"💰 Aapne **₹{bet_amount}** dao par lagaye aur **₹{total_win}** jeet liye!\n"
             f"✨ Hela tumse prasann hui!"
         )
     else:
