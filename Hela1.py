@@ -182,9 +182,12 @@ async def kill_cmd(client, message):
         f"✨ Aae aise hi aghe badho "
     )
 
-@app.on_message(filters.group & filters.incoming, group=5)   # ← group=3 डालना न भूलें
-async def track_groups(client, message):
-    chat_id = message.chat.id
+@app.on_message(filters.text & ~filters.regex(r"^/"), group=4)
+async def hela_chat(client, message):
+    # ✅ अगर इसी चैट में कोई active guess चल रहा है, तो AI मौन रहे
+    if active_guess.get("chat_id") == message.chat.id:
+        return
+    # बाकी पुराना कोड...
     # ✅ सुरक्षित title (अगर कोई group title न हो तो "Unknown Group" लिखे)
     title = message.chat.title or "Unknown Group"
     if chat_id not in tracked_groups:
@@ -1535,22 +1538,23 @@ async def master_text_listener(client, message):
         except: pass
         raise StopPropagation
     if active_guess.get("name") and chat_id == active_guess.get("chat_id"):
-        correct_answer = active_guess["name"].lower()
-        if user_text == correct_answer:
-            set_bal(uid, 600)
-            ans_name = active_guess["name"].title()
-            active_guess["name"] = None
-            active_guess["chat_id"] = None
-            active_guess["msg_id"] = None
-            await message.reply_text(
-                f"🎉 **B-I-N-G-O!**\n"
-                f"──────────────────\n"
-                f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
-                f"🦅 Sahi Jawab: **{ans_name}**\n"
-                f"💰 Inaam: **₹600** aapke khate mein jama ho gaye!\n"
-                f"⏳ Ab agle chitra ka intezaar karo."
-            )
-            raise StopPropagation
+    correct_answer = active_guess["name"].lower().replace(" ", "")
+    user_input = user_text.replace(" ", "")   # user_text already lowercased
+    if user_input == correct_answer:
+        set_bal(uid, 500)
+        ans_name = active_guess["name"].title()
+        active_guess["name"] = None
+        active_guess["chat_id"] = None
+        active_guess["msg_id"] = None
+        await message.reply_text(
+            f"🎉 **B-I-N-G-O!**\n"
+            f"──────────────────\n"
+            f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
+            f"🦅 Sahi Jawab: **{ans_name}**\n"
+            f"💰 Inaam: **₹500** aapke khate mein jama ho gaye!\n"
+            f"⏳ Ab agle chitra ka intezaar karo."
+        )
+        raise StopPropagation
 
 async def start_guess_game(client, chat_id):
     if not MARVEL_CHARS:
