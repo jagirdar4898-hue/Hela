@@ -1538,23 +1538,23 @@ async def master_text_listener(client, message):
         except: pass
         raise StopPropagation
     if active_guess.get("name") and chat_id == active_guess.get("chat_id"):
-    correct_answer = active_guess["name"].lower().replace(" ", "")
-    user_input = user_text.replace(" ", "")   # user_text already lowercased
-    if user_input == correct_answer:
-        set_bal(uid, 500)
-        ans_name = active_guess["name"].title()
-        active_guess["name"] = None
-        active_guess["chat_id"] = None
-        active_guess["msg_id"] = None
-        await message.reply_text(
-            f"🎉 **B-I-N-G-O!**\n"
-            f"──────────────────\n"
-            f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
-            f"🦅 Sahi Jawab: **{ans_name}**\n"
-            f"💰 Inaam: **₹500** aapke khate mein jama ho gaye!\n"
-            f"⏳ Ab agle chitra ka intezaar karo."
-        )
-        raise StopPropagation
+        correct_answer = active_guess["name"].lower().replace(" ", "")
+        user_input = user_text.replace(" ", "")   # user_text already lowercased
+        if user_input == correct_answer:
+            set_bal(uid, 500)
+            ans_name = active_guess["name"].title()
+            active_guess["name"] = None
+            active_guess["chat_id"] = None
+            active_guess["msg_id"] = None
+            await message.reply_text(
+                f"🎉 **B-I-N-G-O!**\n"
+                f"──────────────────\n"
+                f"✨ **{message.from_user.first_name}** ki aankhein baaz ki tarah tez hain!\n"
+                f"🦅 Sahi Jawab: **{ans_name}**\n"
+                f"💰 Inaam: **₹500** aapke khate mein jama ho gaye!\n"
+                f"⏳ Ab agle chitra ka intezaar karo."
+            )
+            raise StopPropagation
 
 async def start_guess_game(client, chat_id):
     if not MARVEL_CHARS:
