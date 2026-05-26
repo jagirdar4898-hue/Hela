@@ -1,4 +1,5 @@
 import logging
+import os 
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -334,6 +335,25 @@ def main():
 
     print("❄️ Elsa Core Extension Module Loaded.")
     app.run_polling()
+    
+# --- DUMMY WEB SERVER FOR RENDER ---
+import threading
+from flask import Flask
+
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "❄️ Elsa bot is running!"
+
+def run_web():
+    web_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8081)))
+
+# अलग port पर चलाओ (Hela 8080 use करेगा, Elsa 8081 – कोई conflict नहीं)
+# लेकिन Render sirf एक PORT env देता है, इसलिए हम 8081 hardcode करेंगे
+# बेहतर: Elsa को दूसरा env variable दो, लेकिन simple यही है:
+
+threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == "__main__":
     main()
