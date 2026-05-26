@@ -3,3 +3,4 @@ tgcrypto
 groq
 flask
 gTTS
+python-telegram-bot
