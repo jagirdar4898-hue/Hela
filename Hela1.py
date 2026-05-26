@@ -182,16 +182,7 @@ async def kill_cmd(client, message):
         f"✨ Aae aise hi aghe badho "
     )
 
-@app.on_message(filters.text & ~filters.regex(r"^/"), group=4)
-async def hela_chat(client, message):
-    # ✅ अगर इसी चैट में कोई active guess चल रहा है, तो AI मौन रहे
-    if active_guess.get("chat_id") == message.chat.id:
-        return
-    # बाकी पुराना कोड...
-    # ✅ सुरक्षित title (अगर कोई group title न हो तो "Unknown Group" लिखे)
-    title = message.chat.title or "Unknown Group"
-    if chat_id not in tracked_groups:
-        tracked_groups[chat_id] = {"title": title, "added_at": time.time()}
+
 
 @app.on_message(filters.command("rob"))
 async def rob_cmd(client, message):
@@ -348,7 +339,12 @@ async def give_cmd(client, message):
 # --- GROQ AI (unchanged) ---
 @app.on_message(filters.text & ~filters.regex(r"^/"), group=4)
 async def hela_chat(client, message):
+    # ✅ अगर इस चैट में कोई active guess चल रहा है, तो AI चुप रहे
+    if active_guess.get("chat_id") == message.chat.id:
+        return
+
     bot = await client.get_me()
+    # ... बाकी पुराना कोड जैसे का तैसा ...
     msg_text = message.text.lower()
     is_private = message.chat.type == enums.ChatType.PRIVATE
     is_reply = message.reply_to_message and message.reply_to_message.from_user.id == bot.id
