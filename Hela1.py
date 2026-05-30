@@ -132,6 +132,34 @@ async def is_group_or_bot_admin(client, message):
 async def is_admin(message):
     return message.from_user.id in ADMIN_IDS
 
+@app.on_message(filters.command("reset"))
+async def reset_cmd(client, message):
+    # Only bot admins (owners) can use this command
+    if not await is_admin(message):
+        return await message.reply_text("⛔ Aukaat mein! Ye shakti sirf Asgard ke Senapatiyon ke liye hai.")
+    
+    # Reset all databases
+    global economy, kills_db, protection_db, premium_users, loans, warns, cooldowns, group_claim_cooldown
+    economy = {}
+    kills_db = {}
+    protection_db = {}
+    premium_users = {}
+    loans = {}
+    warns = {}
+    cooldowns = {"daily": {}, "weekly": {}}
+    group_claim_cooldown = {}
+    # Optional: reset tracked_groups if needed? Usually keep groups list.
+    # But to be thorough, you can also reset:
+    # tracked_groups.clear()
+    
+    await message.reply_text(
+        "💀 **A-S-G-A-R-D  R-E-S-E-T  H-U-A!** 💀\n"
+        "──────────────────\n"
+        "✨ Har mortal ka khazana ab **₹1000**.\n"
+        "⚔️ Sabke kills, protection, premium, loans sab khatam.\n"
+        "🌍 Hela ne naye niyam bana diye hain. Ab sab barabar se shuru karo!"
+    )
+
 # --- START COMMAND ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
@@ -902,6 +930,14 @@ async def hug_cmd(client, message):
         m = random.choice(rp_media["hug"])
         await (client.send_photo if m["type"] == "photo" else client.send_animation)(message.chat.id, m["id"], caption=text, reply_to_message_id=message.reply_to_message.id)
     else: await message.reply_text(text)
+
+@app.on_message(filters.command("resetbal"))
+async def resetbal_cmd(client, message):
+    if not await is_admin(message):
+        return
+    for uid in list(economy.keys()):
+        economy[uid] = 1000
+    await message.reply_text("💰 Sabka balance ₹1000 kar diya gaya! Baki ka data jaisa ka taisa.")
 
 # --- COUPLE COMMAND (with GIF support) ---
 pending_couple_media = {}
