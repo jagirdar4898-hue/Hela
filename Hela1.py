@@ -28,6 +28,14 @@ app = Client("HelaBot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # Databases
+# Economy toggle
+economy_enabled = True
+
+# Personal chats tracking (private chats)
+personal_chats = set()   # stores user ids
+
+# Revive cooldown storage
+kill_cooldown = {}       # {user_id: timestamp_of_last_kill}
 economy = {}
 loans = {}
 #active_guess = {"name": None, "chat_id": None}
@@ -183,24 +191,37 @@ async def start(client, message):
     ])
     await message.reply_text(text, reply_markup=buttons)
 
-# --- KILL, ROB, GIVE, LOAN (unchanged) ---
+# --- KILL, ROB, GIVE, LOAN (unchanged) 
 @app.on_message(filters.command("kill"))
 async def kill_cmd(client, message):
+    # Economy check (admin can bypass)
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
+    
     if not message.reply_to_message:
         return await message.reply_text("⚠️ **Kise maut ke ghaat utarna hai? Pehle kisi ke message par reply toh karo!**")
+    
     victim = message.reply_to_message.from_user
     killer = message.from_user
+    
+    # Admin bypass for protection
+    if not await is_admin(message):
+        if is_protected(victim.id):
+            return await message.reply_text(
+                f"🛡️ **S-H-A-K-T-I-H-E-E-N  P-R-A-H-A-A-R!**\n\n"
+                f"**{victim.first_name}** Hela ki sharan mein hai (Protected). "
+                f"Tumhara hathiyar iska baal bhi banka nahi kar sakta! ⚡"
+            )
+    
     if victim.id == killer.id:
         return await message.reply_text("💀 **Khudkhushi paap hai! Hela ko ye pasand nahi. Kisi aur ko chuno!**")
-    if is_protected(victim.id):
-        return await message.reply_text(
-            f"🛡️ **S-H-A-K-T-I-H-E-E-N  P-R-A-H-A-A-R!**\n\n"
-            f"**{victim.first_name}** Hela ki sharan mein hai (Protected). "
-            f"Tumhara hathiyar iska baal bhi banka nahi kar sakta! ⚡"
-        )
+    
+    # Perform kill
     set_bal(killer.id, 500)
     add_kills_to_user(killer.id, 1)
+    kill_cooldown[victim.id] = time.time()   # Store kill timestamp for revive cooldown
     total_kills = kills_db.get(killer.id, 0)
+    
     await message.reply_text(
         f"💀 **H-E-L-A'S  W-R-A-T-H!**\n"
         f"──────────────────\n"
@@ -210,36 +231,47 @@ async def kill_cmd(client, message):
         f"✨ Aae aise hi aghe badho "
     )
 
-
-
 @app.on_message(filters.command("rob"))
 async def rob_cmd(client, message):
+    # Economy check (admin can bypass)
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
+    
     if not message.reply_to_message:
         return await message.reply_text("💰 **Lootne ke liye kisi ke message par reply karein!**")
+    
     target = message.reply_to_message.from_user
     robber_id = message.from_user.id
-    if is_protected(target.id):
-        return await message.reply_text(
-            f"🛡️ **C-H-O-R-I N-A-A-K-A-A-M!**\n\n"
-            f"**{target.first_name}** par Hela ka kaala kavach hai! "
-            f"Tumhari himmat kaise hui unke khazane ki taraf aankh uthane ki? ⚡"
-        )
+    
+    # Admin bypass for protection
+    if not await is_admin(message):
+        if is_protected(target.id):
+            return await message.reply_text(
+                f"🛡️ **C-H-O-R-I N-A-A-K-A-A-M!**\n\n"
+                f"**{target.first_name}** par Hela ka kaala kavach hai! "
+                f"Tumhari himmat kaise hui unke khazane ki taraf aankh uthane ki? ⚡"
+            )
+    
     if target.id == robber_id:
         return await message.reply_text("💀 **Apni hi jeb katoge kya? Murkh!**")
+    
     target_bal = get_bal(target.id)
     if target_bal <= 0:
         return await message.reply_text(
             f"💀 **{target.first_name} ke paas ek futi kaudi nahi hai!**\n"
             f"Hela murdon aur bhikariyon ko nahi loot-ti. Jao kisi ameer ko dhoondo!"
         )
+    
     loot = random.randint(0, 40000)
     if loot > target_bal:
         loot = target_bal
     set_bal(target.id, -loot)
     set_bal(robber_id, loot)
+    
     extra_msg = "✨ Hela is chori par muskura rahi hai..."
     if get_bal(target.id) == 0:
         extra_msg = "💸 **Tumne ishe aakhiri chillar tak loot liya! Ab ye puri tarah kangal ho chuka hai!** 💀"
+    
     await message.reply_text(
         f"🧤 **H-E-I-S-T S-U-C-C-E-S-S-F-U-L!**\n"
         f"──────────────────\n"
@@ -249,6 +281,8 @@ async def rob_cmd(client, message):
 
 @app.on_message(filters.command("loan"))
 async def loan_cmd(client, message):
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
     if len(message.command) < 2 or not message.reply_to_message:
         return await message.reply_text("Usage: Reply to user with `/loan [amount]`")
     amt = int(message.command[1])
@@ -336,6 +370,8 @@ async def accept_cmd(client, message):
 
 @app.on_message(filters.command(["give", "pay", "transfer"]))
 async def give_cmd(client, message):
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
     if not message.reply_to_message:
         return await message.reply_text("💸 **Kise daan dena hai? Pehle kisi ke message par reply karo!**")
     if len(message.command) < 2:
@@ -457,6 +493,8 @@ async def fight_cmd(client, message):
 # --- DART (66% win chance) ---
 @app.on_message(filters.command("dart"))
 async def dart_cmd(client, message):
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
     if len(message.command) < 2:
         return await message.reply_text("🎯 **Khela shuru karne ke liye raqam toh batao!**\nExample: `/dart 500`")
     try:
@@ -471,7 +509,7 @@ async def dart_cmd(client, message):
         return await message.reply_text("💀 **Hela ke saath mazaak? Sahi raqam dalo!**")
     status = await message.reply_text("🎯 **Hela apni talwar nishane par phek rahi hai...**")
     win_chance = random.randint(1, 100)
-    if win_chance <= 66:
+    if win_chance <= 40:
         multiplier = 4 if is_premium(user_id) else 2
         win_amt = bet_amount * multiplier
         set_bal(user_id, bet_amount)  # return bet + extra? Actually we need to add net gain.
@@ -500,6 +538,8 @@ pending_dice = {}
 
 @app.on_message(filters.command("dice"))
 async def dice_cmd(client, message):
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
     if len(message.command) < 2:
         return await message.reply_text("🎲 **Daav toh lagao!** Likh kar batao: `/dice 100`")
     try:
@@ -523,7 +563,10 @@ async def dice_callback(client, callback_query):
         return await callback_query.answer("❌ Tumhara koi daav nahi hai ya waqt nikal gaya!", show_alert=True)
     bet = pending_dice.pop(uid)
     chosen_num = int(callback_query.data.split("_")[1])
-    is_win = random.choice([True, False])
+    #is_win = random.choice([True, False])
+    # Current: is_win = random.choice([True, False])
+# Change to:
+    is_win = random.randint(1, 100) <= 40
     if is_win:
         rolled = chosen_num
         set_bal(uid, -bet)                                 # पहले दांव काटो
@@ -655,6 +698,134 @@ async def say_cmd(client, message):
     await message.delete()
     await client.send_message(message.chat.id, text_to_say)
 
+@app.on_message(filters.command("ss"))
+async def ss_cmd(client, message):
+    if not await is_admin(message):
+        return await message.reply_text("⛔ Sirf Senapati ko ye shakti di gayi hai.")
+    
+    if len(message.command) < 2:
+        return await message.reply_text("Usage: `/ss user` ya `/ss gc`")
+    
+    sub = message.command[1].lower()
+    if sub == "user":
+        await show_user_list(client, message)
+    elif sub == "gc":
+        await show_group_list(client, message)
+    else:
+        await message.reply_text("❌ Invalid option. Use `/ss user` or `/ss gc`")
+
+async def show_user_list(client, message):
+    # Collect all known users from economy, kills, premium, personal_chats
+    all_users = set(economy.keys()) | set(kills_db.keys()) | set(premium_users.keys()) | personal_chats
+    if not all_users:
+        return await message.reply_text("❌ Koi user track nahi kiya gaya.")
+    
+    buttons = []
+    for uid in list(all_users)[:100]:  # limit to 100 for now (you can add pagination)
+        try:
+            user = await client.get_users(uid)
+            name = user.first_name or str(uid)
+        except:
+            name = str(uid)
+        buttons.append([InlineKeyboardButton(name, callback_data=f"ssuser_{uid}")])
+    
+    # Add cancel button
+    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="ss_cancel")])
+    
+    await message.reply_text(
+        "👥 **Select a user to view screenshot (profile):**",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+async def show_group_list(client, message):
+    if not tracked_groups:
+        return await message.reply_text("❌ Koi group track nahi hai.")
+    
+    buttons = []
+    for chat_id, data in tracked_groups.items():
+        title = data.get("title", f"Group {chat_id}")
+        buttons.append([InlineKeyboardButton(title, callback_data=f"ssgroup_{chat_id}")])
+    
+    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="ss_cancel")])
+    
+    await message.reply_text(
+        "🏰 **Select a group to view screenshot (info):**",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@app.on_callback_query(filters.regex(r"^ssuser_"))
+async def ssuser_callback(client, callback_query):
+    uid = int(callback_query.data.split("_")[1])
+    try:
+        user = await client.get_users(uid)
+        name = user.first_name
+    except:
+        name = f"Unknown ({uid})"
+    
+    bal = get_bal(uid)
+    kills = kills_db.get(uid, 0)
+    premium = is_premium(uid)
+    protected = is_protected(uid)
+    
+    text = (
+        f"📸 **Screenshot (User Report)**\n"
+        f"──────────────────\n"
+        f"👤 **Name:** {name}\n"
+        f"🆔 **ID:** `{uid}`\n"
+        f"💰 **Balance:** ₹{bal}\n"
+        f"💀 **Kills:** {kills}\n"
+        f"👑 **Premium:** {'✅ Yes' if premium else '❌ No'}\n"
+        f"🛡️ **Protected:** {'✅ Yes' if protected else '❌ No'}\n"
+        f"──────────────────"
+    )
+    await callback_query.message.edit_text(text)
+    await callback_query.answer()
+
+@app.on_callback_query(filters.regex(r"^ssgroup_"))
+async def ssgroup_callback(client, callback_query):
+    chat_id = int(callback_query.data.split("_")[1])
+    data = tracked_groups.get(chat_id, {})
+    title = data.get("title", "Unknown")
+    added_at = data.get("added_at", 0)
+    added_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(added_at)) if added_at else "N/A"
+    
+    # Get member count (optional)
+    try:
+        member_count = await client.get_chat_members_count(chat_id)
+    except:
+        member_count = "N/A"
+    
+    text = (
+        f"📸 **Screenshot (Group Report)**\n"
+        f"──────────────────\n"
+        f"🏰 **Group:** {title}\n"
+        f"🆔 **Chat ID:** `{chat_id}`\n"
+        f"👥 **Members:** {member_count}\n"
+        f"📅 **Added on:** {added_str}\n"
+        f"──────────────────"
+    )
+    await callback_query.message.edit_text(text)
+    await callback_query.answer()
+
+@app.on_callback_query(filters.regex(r"^ss_cancel$"))
+async def ss_cancel_callback(client, callback_query):
+    await callback_query.message.edit_text("❌ Cancelled.")
+    await callback_query.answer()
+
+@app.on_message(filters.group, group=0)
+async def track_group(client, message):
+    chat_id = message.chat.id
+    if chat_id not in tracked_groups:
+        tracked_groups[chat_id] = {
+            "title": message.chat.title or "Unnamed",
+            "added_at": time.time()
+        }
+
+@app.on_message(filters.private & filters.text, group=0)
+async def track_private_chat(client, message):
+    personal_chats.add(message.from_user.id)
+    # Let other handlers process (no return/raise)
+
 # --- ECONOMY GOD COMMANDS (bot admins only) ---
 @app.on_message(filters.command("gift"))
 async def gift_cmd(client, message):
@@ -758,6 +929,8 @@ async def daily_cmd(client, message):
     uid = message.from_user.id
     now = time.time()
     last_claimed = cooldowns["daily"].get(uid, 0)
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
     if now - last_claimed < 86400:
         rem = int(86400 - (now - last_claimed))
         return await message.reply_text(f"⏳ **Lalach buri bala hai!** Apna inaam kal lena. ({rem // 3600}h {(rem % 3600) // 60}m left) 💀")
@@ -803,27 +976,51 @@ async def editweekly_cmd(client, message):
     try:
         rewards["weekly"] = int(message.command[1])
         await message.reply_text(f"✅ **Farmaan Jaari!** Weekly reward ab **₹{rewards['weekly']}** hai.")
-    except:
-        pass
 
-# --- REVIVE COMMAND ---
+
 @app.on_message(filters.command("revive"))
 async def revive_cmd(client, message):
+    # Economy check (optional, but we keep it for fairness)
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
+    
     if not message.reply_to_message:
         return await message.reply_text("✨ **Kise maut ke muh se wapas lana hai? Reply karo!**")
+    
     target = message.reply_to_message.from_user
     healer = message.from_user
+    
     if target.id == healer.id:
         return await message.reply_text("💀 **Khud ko revive nahi kar sakte! Kis aur se madad mango.**")
+    
+    # Admin bypass for cooldown (24h)
+    if not await is_admin(message):
+        if target.id in kill_cooldown:
+            elapsed = time.time() - kill_cooldown[target.id]
+            if elapsed < 86400:  # 24 hours
+                remaining = int(86400 - elapsed)
+                hours = remaining // 3600
+                mins = (remaining % 3600) // 60
+                return await message.reply_text(
+                    f"⏳ **{target.first_name}** abhi mara nahi hai ya 24 ghante nahi hue!\n"
+                    f"Wapas aane mein {hours}h {mins}m baaki hain. ⏳"
+                )
+    
+    # Cost check
     if get_bal(healer.id) < 700:
         return await message.reply_text("💸 **Kangal!** Revive karne ki keemat **₹700** hai. Pehle Asgard ka tax chukao!")
+    
+    # Deduct cost and revive
     set_bal(healer.id, -700)
+    
     await message.reply_text(
         f"🌟 **R-E-V-I-V-A-L  M-A-G-I-C!**\n"
         f"──────────────────\n"
         f"✨ **{healer.first_name}** ne **₹700** ki aahuti dekar **{target.first_name}** ki aatma ko Valhalla se wapas bula liya hai!\n"
         f"🕊️ Naya jeevan mubarak ho Mortal!"
     )
+    # Revive successful - maybe remove from kill_cooldown? Not necessary, but can keep.
+    # ... rest
 
 # --- LEADERBOARDS ---
 @app.on_message(filters.command(["toprich", "rich"]))
@@ -1124,6 +1321,44 @@ async def broadcast_cmd(client, message):
             except Exception as e:
                 await message.reply_text(f"❌ **Error:** {e}")
 
+@app.on_message(filters.command("eco"))
+async def eco_toggle(client, message):
+    if not await is_admin(message):
+        return await message.reply_text("⛔ Sirf Asgard ke Senapati is shakti ko chhed sakte hain.")
+    
+    if len(message.command) < 2:
+        return await message.reply_text("Usage: `/eco on` ya `/eco off`")
+    
+    global economy_enabled
+    if message.command[1].lower() == "on":
+        economy_enabled = True
+        await message.reply_text("✅ **Economy Activated!** Ab sab kama sakte hain, loot sakte hain, aur mar sakte hain! 💰")
+    elif message.command[1].lower() == "off":
+        economy_enabled = False
+        await message.reply_text("⛔ **Economy Frozen!** Koi rob, kill, daily, weekly, dice, dart nahi chalega. Sirf admin commands kaam karengi.")
+    else:
+        await message.reply_text("❌ Sahi format: `/eco on` ya `/eco off`")
+
+@app.on_message(filters.command("prebuy"))
+async def prebuy_cmd(client, message):
+    uid = message.from_user.id
+    cost = 5000
+    if get_bal(uid) < cost:
+        return await message.reply_text(f"💸 **Tumhare paas itna paisa nahi!**\nTumhare paas ₹{get_bal(uid)} hain, ₹{cost} chahiye.\nPehle kamao, fir aana!")
+    # Deduct
+    set_bal(uid, -cost)
+    # Add premium for 60 days
+    expiry = time.time() + (60 * 86400)  # 60 days
+    premium_users[uid] = expiry
+    await message.reply_text(
+        f"👑 **Premium Activation Successful!**\n"
+        f"──────────────────\n"
+        f"💰 ₹{cost} kat liye gaye.\n"
+        f"⏳ Ab aap 2 mahine (60 din) ke liye Premium mahayoddha hain!\n"
+        f"✨ Ab aapko daily/weekly double, protection hamesha, aur aur bhi faide!"
+    )
+  
+
 # --- GROUP SELECTION FOR BROADCAST (Inline Keyboard) ---
 @app.on_message(filters.command("groups"))
 async def groups_list_cmd(client, message):
@@ -1316,6 +1551,8 @@ async def adminlist_cmd(client, message):
         text += f"• {adm}\n"
     await message.reply_text(text)
 
+
+
 @app.on_message(filters.command("claim"))
 async def claim_cmd(client, message):
     if message.chat.type == enums.ChatType.PRIVATE:
@@ -1420,6 +1657,8 @@ async def admincmds_cmd(client, message):
 @app.on_message(filters.command("premium"))
 async def premium_cmd(client, message):
     uid = message.from_user.id
+    if not economy_enabled and not await is_admin(message):
+        return await message.reply_text("⛔ Economy off hai! Pehle `/eco on` karo.")
     if is_premium(uid):
         return await message.reply_text("👑 **Tum toh pehle se hi Maha-Mortal (Premium) ho!** Aish karo.")
     if await is_admin(message):
