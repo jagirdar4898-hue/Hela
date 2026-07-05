@@ -971,11 +971,15 @@ async def editdaily_cmd(client, message):
 
 @app.on_message(filters.command("editweekly"))
 async def editweekly_cmd(client, message):
-    if not await is_admin(message): return
-    if len(message.command) < 2: return await message.reply_text("✍️ Nayi raqam batao! (e.g., `/editweekly 10000`)")
+    if not await is_admin(message):
+        return
+    if len(message.command) < 2:
+        return await message.reply_text("✍️ Nayi raqam batao! (e.g., `/editweekly 10000`)")
     try:
         rewards["weekly"] = int(message.command[1])
         await message.reply_text(f"✅ **Farmaan Jaari!** Weekly reward ab **₹{rewards['weekly']}** hai.")
+    except ValueError:
+        await message.reply_text("❌ **Galat number!** Sirf positive integer likho.")
 
 
 @app.on_message(filters.command("revive"))
