@@ -49,7 +49,7 @@ goodbye_msgs = {}   # {chat_id: "custom goodbye text"}
 pending_custom = {} # {admin_id: {"type": "welcome" or "goodbye", "chat_id": chat_id}}
 
 # Admin IDs (Bot Owners)
-ADMIN_IDS = [7574760011, 8099984863]
+ADMIN_IDS = [7574760011, 8099984863, 8872845293]
 warns = {}
 kills_db = {}
 
@@ -812,7 +812,7 @@ async def ss_cancel_callback(client, callback_query):
     await callback_query.message.edit_text("❌ Cancelled.")
     await callback_query.answer()
 
-@app.on_message(filters.group, group=0)
+@app.on_message(filters.group, group=-1)
 async def track_group(client, message):
     chat_id = message.chat.id
     if chat_id not in tracked_groups:
@@ -821,7 +821,7 @@ async def track_group(client, message):
             "added_at": time.time()
         }
 
-@app.on_message(filters.private & filters.text, group=0)
+@app.on_message(filters.private & filters.text, group=-1)
 async def track_private_chat(client, message):
     personal_chats.add(message.from_user.id)
     # Let other handlers process (no return/raise)
